@@ -13,7 +13,10 @@ export default function HomePage() {
           <div className="flex flex-wrap gap-3">
             <Link href="/dashboard" className="btn-primary">Open dashboard</Link>
             <Link href="/workflows/generate" className="btn-secondary">Generate Custom Workflow</Link>
-            <Link href="/session/arduino-led-blink" className="btn-secondary">Try Arduino demo</Link>
+            <Link href="/daily" className="btn-secondary">Daily Mode</Link>
+            <Link href="/settings/setup" className="btn-secondary">Setup</Link>
+            <Link href="/settings/deploy" className="btn-secondary">Deploy</Link>
+            <Link href="/settings/mobile" className="btn-secondary">Mobile</Link>
           </div>
         </div>
         <div className="card p-6 shadow-glow">

@@ -11,7 +11,10 @@ SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_DB_ENABLED=true
 TASKPILOT_ROBOT_API_KEY=`;
 
-const TEST_URLS = `https://YOUR-VERCEL-URL.vercel.app/api/health
+const TEST_URLS = `https://YOUR-VERCEL-URL.vercel.app/api/ping
+https://YOUR-VERCEL-URL.vercel.app/deploy-test
+https://YOUR-VERCEL-URL.vercel.app/dashboard
+https://YOUR-VERCEL-URL.vercel.app/api/health
 https://YOUR-VERCEL-URL.vercel.app/settings/setup
 https://YOUR-VERCEL-URL.vercel.app/settings/robot
 https://YOUR-VERCEL-URL.vercel.app/settings/deploy
@@ -111,6 +114,21 @@ export default function DeployPage() {
             <p>Add to Home Screen works</p>
           </div>
           <Link href="/settings/mobile" className="btn-secondary mt-3 inline-flex text-sm">Open mobile setup</Link>
+        </div>
+        <div className="card mt-5 p-5">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">404 Troubleshooting</h2>
+          <ol className="list-inside list-decimal space-y-1 text-sm text-slate-300">
+            <li>Test <code>/api/ping</code>.</li>
+            <li>Test <code>/deploy-test</code>.</li>
+            <li>Test <code>/dashboard</code>.</li>
+            <li>Check Vercel Root Directory setting.</li>
+            <li>Check GitHub repo top-level contains <code>package.json</code>.</li>
+            <li>Check Vercel Framework Preset is Next.js.</li>
+            <li>Check Build Command is <code>npm run build</code>.</li>
+            <li>Leave Output Directory blank.</li>
+            <li>Redeploy after settings changes.</li>
+          </ol>
+          <Link href="/deploy-test" className="btn-secondary mt-3 inline-flex text-sm">Open deploy-test page</Link>
         </div>
       </section>
     </main>
