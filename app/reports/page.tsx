@@ -106,8 +106,8 @@ export default function ReportsPage() {
       <Nav />
       <section className="mx-auto max-w-6xl px-4 py-8">
         <p className="badge mb-2">Reports</p>
-        <h1 className="text-3xl font-black">Progress report history</h1>
-        <p className="mb-4 text-slate-400">Proof-backed progress over time: daily closeouts and workflow reports.</p>
+        <h1 className="text-3xl font-black">Reports History</h1>
+        <p className="mb-4 text-slate-400">Daily debriefs, workflow reports, lessons, and evidence summaries.</p>
         <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
           <div className="card p-5">
             <div className="mb-3 flex flex-wrap gap-2">
@@ -128,6 +128,9 @@ export default function ReportsPage() {
                   {item.type === 'daily_debrief' && (
                     <p className="text-xs text-slate-500">Execution {item.executionScore}/100 · Money {item.moneyScore}/100 · Completed {item.completedCount} · Proof {item.proofCount}</p>
                   )}
+                  <div className="mt-2">
+                    <a className="btn-ghost btn-sm inline-flex" href={`/reports/${item.id}`}>Open</a>
+                  </div>
                 </button>
               ))}
               {!filtered.length && <p className="text-sm text-slate-500">No reports yet.</p>}

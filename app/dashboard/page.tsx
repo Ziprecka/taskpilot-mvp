@@ -45,7 +45,11 @@ export default function DashboardPage() {
       }
     }
     const sortedSessions = values.sort((a, b) => String(b?.updated_at || '').localeCompare(String(a?.updated_at || '')));
-    setSavedSessions(sortedSessions.slice(0, 5));
+    const deduped = sortedSessions.reduce((acc: any[], session: any) => {
+      if (acc.some((item) => item.workflow_id === session.workflow_id)) return acc;
+      return [...acc, session];
+    }, []);
+    setSavedSessions(deduped.slice(0, 5));
     setRecentActivity(getRecentActivity());
     setPinnedIds(getPinnedWorkflowIds());
     try {
@@ -127,15 +131,19 @@ export default function DashboardPage() {
   const totalXP = Number(progression?.total_xp || 0);
   const level = Number(progression?.level || Math.floor(totalXP / 100) + 1);
   const lastCompleted = dailyState?.outcomes?.filter((o: any) => o.status === 'done')?.slice(-1)[0]?.title || 'No completed outcomes yet';
-  const recommended = !onboardingComplete
+  const recommended = dailyState?.active_focus_block?.status === 'active'
+    ? { title: 'Continue current mission', reason: `Focus on ${dailyState.active_focus_block.title} and log proof.`, href: '/daily', cta: 'Continue mission' }
+    : !onboardingComplete
     ? { title: 'Finish onboarding', reason: 'Personalize recommendations and coaching style.', href: '/onboarding', cta: 'Continue onboarding' }
-    : dailyState?.active_focus_block?.status === 'active'
-      ? { title: 'Continue focus block', reason: `Resume execution on ${dailyState.active_focus_block.title}.`, href: '/daily', cta: 'Open Daily' }
-      : dailyState?.outcomes?.length
-        ? { title: 'Start your highest-leverage next move', reason: 'You already planned outcomes. Start one focused block now.', href: '/daily', cta: 'Start focus' }
+    : !dailyState?.outcomes?.length
+      ? { title: 'Plan today', reason: 'No outcomes yet. Define today before execution.', href: '/daily', cta: 'Plan today' }
+      : dailyState?.outcomes?.some((o: any) => o.status !== 'done')
+        ? { title: 'Start next outcome', reason: 'Unfinished outcomes are waiting for a focused block.', href: '/daily', cta: 'Open Today' }
+        : dailyState?.status === 'complete'
+          ? { title: 'Review debrief or plan tomorrow', reason: 'Day is closed. Preserve momentum for tomorrow.', href: '/daily', cta: 'View debrief' }
         : latestSession
-          ? { title: 'Continue active workflow', reason: `Pick up where you left off on ${latestSession.workflow_id || 'your workflow'}.`, href: `/session/${latestSession.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(latestSession.id)}`, cta: 'Continue session' }
-          : { title: prefs?.first_action === 'generate a workflow' ? 'Generate your first workflow' : 'Plan today', reason: 'Your next move, not another to-do list.', href: prefs?.first_action === 'generate a workflow' ? '/workflows/generate' : '/daily', cta: prefs?.first_action === 'generate a workflow' ? 'Generate workflow' : 'Plan today' };
+          ? { title: 'Continue playbook', reason: `Pick up where you left off on ${latestSession.workflow_id || 'your playbook'}.`, href: `/session/${latestSession.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(latestSession.id)}`, cta: 'Continue playbook' }
+          : { title: 'Generate or choose a playbook', reason: 'Build reusable systems you can run in Today.', href: '/workflows/saved', cta: 'Open playbooks' };
 
   const tools = {
     Setup: [
@@ -145,7 +153,7 @@ export default function DashboardPage() {
       { href: '/settings/auth-debug', title: 'Auth Debug', desc: 'Inspect client/server auth state' }
     ],
     Work: [
-      { href: '/workflows/saved', title: 'Workflow Library', desc: 'Browse and pin workflows' },
+      { href: '/workflows/saved', title: 'Playbook Library', desc: 'Browse and pin playbooks' },
       { href: '/sessions', title: 'Saved Sessions', desc: 'Resume previous workflow runs' },
       { href: '/reports', title: 'Reports', desc: 'Review daily and workflow reports' },
       { href: '/proof', title: 'Proof Log', desc: 'View proof-backed progress entries' },
@@ -166,14 +174,15 @@ export default function DashboardPage() {
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <p className="badge mb-3">Execution cockpit</p>
-              <h1 className="text-3xl font-black md:text-4xl">TaskPilot Dashboard</h1>
-              <p className="mt-2 text-slate-400">Know what to do next, run focused execution, and track progress in one place.</p>
+              <h1 className="text-3xl font-black md:text-4xl">TaskPilot Home</h1>
+              <p className="mt-2 text-slate-400">What should you do next? Home recommends one move, then Today executes it.</p>
               <p className="mt-1 text-xs text-amber-200">Free Beta</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link href="/workflows/new" className="btn-primary">Start workflow</Link>
+              <Link href="/daily" className="btn-primary">Open Today</Link>
               <Link href={latestSession ? `/session/${latestSession.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(latestSession.id)}` : '/session/taskpilot-mvp-build'} className="btn-secondary">Continue latest</Link>
-              <Link href="/workflows/generate" className="btn-secondary">Generate workflow</Link>
+              <Link href="/workflows/generate" className="btn-secondary">Generate playbook</Link>
+              <Link href="/workflows/saved" className="btn-secondary">Browse playbooks</Link>
               <button className="btn-ghost" onClick={() => setShowTools(true)}>Tools</button>
             </div>
           </div>
@@ -194,26 +203,27 @@ export default function DashboardPage() {
 
         <div className="mb-7 grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr]">
           <div className="card card-list p-5">
-            <p className="text-sm text-slate-400">Active workflows</p>
+            <p className="text-sm text-slate-400">Active playbooks</p>
             {savedSessions.length ? (
               <div className="mt-3 space-y-2">
                 {savedSessions.map((session) => (
                   <button key={session.id} className="w-full rounded-lg border border-slate-700 bg-slate-950/40 p-3 text-left text-sm transition hover:border-amber-400/40" onClick={() => setPreviewSession(session)}>
-                    {session.workflow_id || 'workflow'} · step {session.current_step || 1}
+                    {session.workflow_id || 'playbook'} · step {session.current_step || 1}
                   </button>
                 ))}
               </div>
             ) : (
               <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/40 p-4">
-                <p className="font-semibold text-white">No sessions yet</p>
+                <p className="font-semibold text-white">No active playbooks yet</p>
                 <p className="mt-1 text-sm text-slate-400">Start your first run and it will appear here.</p>
-                <Link href="/workflows/new" className="btn-primary btn-sm mt-3 inline-flex">Start workflow</Link>
+                <Link href="/workflows/saved" className="btn-primary btn-sm mt-3 inline-flex">Browse playbooks</Link>
               </div>
             )}
           </div>
           <div className="card p-5">
-            <p className="text-sm text-slate-400">Today&apos;s execution</p>
-            <p className="mt-1 text-xl font-bold">Plan today&apos;s top 3 outcomes</p>
+            <p className="text-sm text-slate-400">Today snapshot</p>
+            <p className="mt-1 text-xl font-bold">Status: {dailyState?.status || 'planning'}</p>
+            <p className="mt-1 text-xs text-slate-500">Outcomes done: {dailyState?.outcomes?.filter((o: any) => o.status === 'done')?.length || 0}/{dailyState?.outcomes?.length || 0} · Focus: {dailyState?.active_focus_block?.actual_minutes || 0}m · Proof: {dailyState?.proof_items?.length || 0} · XP +{dailyState?.xp_today || 0}</p>
             <p className="mt-1 text-xs text-slate-500">Convert outcomes into focus blocks and execution proof.</p>
             <Link href="/daily" className="btn-secondary btn-sm mt-3 inline-flex">Open Daily Mode</Link>
           </div>
@@ -228,7 +238,7 @@ export default function DashboardPage() {
 
         <div className="mb-7 grid gap-4 lg:grid-cols-[1fr_1fr]">
           <div className="card p-5">
-            <p className="text-sm text-slate-400">Pinned workflows</p>
+            <p className="text-sm text-slate-400">Pinned playbooks</p>
             {pinnedWorkflows.length ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {pinnedWorkflows.map((workflow) => (
@@ -238,8 +248,8 @@ export default function DashboardPage() {
             ) : (
               <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/40 p-4">
                 <p className="font-semibold text-white">Pin workflows you use often.</p>
-                <p className="mt-1 text-sm text-slate-400">Use Pin from the Workflow Library to build your default toolkit.</p>
-                <Link href="/workflows/saved" className="btn-secondary btn-sm mt-3 inline-flex">Open Workflow Library</Link>
+                <p className="mt-1 text-sm text-slate-400">Use Pin from the Playbook Library to build your default toolkit.</p>
+                <Link href="/workflows/saved" className="btn-secondary btn-sm mt-3 inline-flex">Open Playbook Library</Link>
               </div>
             )}
           </div>

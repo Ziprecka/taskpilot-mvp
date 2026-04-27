@@ -54,6 +54,13 @@ export default function OnboardingPage() {
         {step === 1 && (
           <div className="card p-5">
             <h2 className="mb-3 text-2xl font-black">What are you using TaskPilot for?</h2>
+            <div className="mb-3 rounded-xl border border-slate-700 bg-slate-950/40 p-3 text-sm text-slate-300">
+              <p className="font-semibold text-white">How TaskPilot works</p>
+              <p><span className="text-slate-500">Home:</span> shows what to do next.</p>
+              <p><span className="text-slate-500">Today:</span> outcomes, focus blocks, proof, XP, debrief.</p>
+              <p><span className="text-slate-500">Playbooks:</span> reusable workflows you can run again.</p>
+              <p><span className="text-slate-500">Reports:</span> history of what you completed, proved, and learned.</p>
+            </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {(['Run my day', 'Build a project', 'Grow a business', 'Create SOPs', 'Learn/build skills', 'Manage client work'] as UseCase[]).map((item) => (
                 <button key={item} className={`rounded-xl border p-3 text-left text-sm ${primaryUseCase === item ? 'border-amber-400 bg-amber-400/10 text-amber-100' : 'border-slate-700 bg-slate-950/40 text-slate-200'}`} onClick={() => setPrimaryUseCase(item)}>

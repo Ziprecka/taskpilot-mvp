@@ -166,6 +166,11 @@ export interface DailyOutcome {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  source_type?: 'manual' | 'workflow_step' | 'generated' | 'carried_forward';
+  linked_workflow_id?: string;
+  linked_session_id?: string;
+  linked_step_number?: number;
+  linked_step_title?: string;
 }
 
 export interface FocusBlock {

@@ -283,6 +283,10 @@ export default function DailyPage() {
           : o)
       }));
     }
+    function onCreatePlaybook() {
+      if (state.active_outcome_id) openWorkflowDraft(state.active_outcome_id);
+      else pushToast('Pick an outcome first.');
+    }
     window.addEventListener('daily-add-outcome', onAddOutcome as EventListener);
     window.addEventListener('daily-plan-today', onPlanToday as EventListener);
     window.addEventListener('daily-start-focus', onStartFocus as EventListener);
@@ -290,6 +294,7 @@ export default function DailyPage() {
     window.addEventListener('daily-generate-report', onGenerateReport as EventListener);
     window.addEventListener('daily-save-lesson', onSaveLesson as EventListener);
     window.addEventListener('daily-improve-page', onImprovePage as EventListener);
+    window.addEventListener('daily-create-playbook', onCreatePlaybook as EventListener);
     return () => {
       window.removeEventListener('daily-add-outcome', onAddOutcome as EventListener);
       window.removeEventListener('daily-plan-today', onPlanToday as EventListener);
@@ -298,6 +303,7 @@ export default function DailyPage() {
       window.removeEventListener('daily-generate-report', onGenerateReport as EventListener);
       window.removeEventListener('daily-save-lesson', onSaveLesson as EventListener);
       window.removeEventListener('daily-improve-page', onImprovePage as EventListener);
+      window.removeEventListener('daily-create-playbook', onCreatePlaybook as EventListener);
     };
   }, [state.outcomes.length, state.active_outcome_id]);
 
@@ -534,6 +540,35 @@ export default function DailyPage() {
     addRecentActivity({ type: 'daily_outcome_completed', title: target.title, route: '/daily' });
     setProgression((prev) => ({ ...prev, completed_outcomes_total: prev.completed_outcomes_total + 1 }));
     awardXP(25, 'Outcome complete', 'big');
+    if (target.linked_session_id && target.linked_step_number) {
+      const shouldMarkStep = window.confirm('Also mark linked playbook step complete?');
+      if (shouldMarkStep) {
+        try {
+          const keys = Object.keys(localStorage).filter((key) => key.startsWith('taskpilot-session-'));
+          for (const key of keys) {
+            const raw = localStorage.getItem(key);
+            if (!raw) continue;
+            const parsed = JSON.parse(raw);
+            if (String(parsed?.session?.id || '').includes(target.linked_session_id)) {
+              const completed = Array.from(new Set([...(parsed.session?.completed_steps || []), target.linked_step_number]));
+              const next = {
+                ...parsed,
+                session: {
+                  ...parsed.session,
+                  completed_steps: completed,
+                  current_step: Math.max(parsed.session?.current_step || 1, target.linked_step_number + 1),
+                  updated_at: nowIso()
+                }
+              };
+              localStorage.setItem(key, JSON.stringify(next));
+              break;
+            }
+          }
+        } catch {
+          // ignore linked step update failure
+        }
+      }
+    }
     if (state.outcomes.filter((o) => o.status === 'done').length + 1 >= state.outcomes.length && state.outcomes.length > 0) {
       setRewardData({ title: 'Today\'s outcomes complete.', xp: 30, copy: 'You finished all planned outcomes.', next: 'Close the day with a debrief.' });
       setShowReward(true);
@@ -615,7 +650,7 @@ export default function DailyPage() {
     if (!outcome) return;
     setWorkflowDraftSourceId(id);
     setWorkflowDraft({
-      workflow_name: `${outcome.title} Workflow`,
+      workflow_name: `${outcome.title} Playbook`,
       goal: outcome.title,
       desired_result: outcome.why_it_matters || 'Concrete daily outcome with proof.',
       context: outcome.first_action || '',
@@ -640,7 +675,7 @@ export default function DailyPage() {
         proof_required: workflowDraft.proof_required,
         steps_count: workflowDraft.step_count,
         output_style: workflowDraft.style,
-        prompt: 'Turn this daily outcome into a concrete workflow with steps that can be executed and verified.'
+      prompt: 'Turn this daily outcome into a concrete playbook with steps that can be executed and verified.'
       })
     });
     const payload = await res.json();
@@ -648,7 +683,7 @@ export default function DailyPage() {
     if (!raw) return pushToast('Could not convert outcome right now.');
     const wf: Workflow = {
       id: raw.id || raw.slug || outcome.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      workflow_name: raw.workflow_name || `${outcome.title} Workflow`,
+      workflow_name: raw.workflow_name || `${outcome.title} Playbook`,
       category: raw.category || 'productivity',
       difficulty: raw.difficulty || 'beginner',
       estimated_time: raw.estimated_time || '60 minutes',
@@ -666,10 +701,10 @@ export default function DailyPage() {
     const generated = workflowDraft.generated;
     if (!generated) return;
     saveGeneratedWorkflow(generated);
-    addRecentActivity({ type: 'workflow_generated', title: `Converted outcome to workflow: ${generated.workflow_name}`, route: `/session/${generated.id}` });
-    logEvent('completed_action', 'Converted active outcome to workflow.');
-    awardXP(15, 'Workflow created', 'small');
-    pushToast('Workflow created from outcome.');
+    addRecentActivity({ type: 'workflow_generated', title: `Created playbook from outcome: ${generated.workflow_name}`, route: `/session/${generated.id}` });
+    logEvent('completed_action', 'Created playbook from active outcome.');
+    awardXP(15, 'Playbook created', 'small');
+    pushToast('Playbook created from today\'s outcome.');
     setWorkflowDraftSourceId(null);
     if (action === 'start') router.push(`/session/${generated.id}`);
     if (action === 'edit') router.push('/workflows/generate');
@@ -908,6 +943,7 @@ Money: ${debrief.money_score}/100
       ...o,
       id: crypto.randomUUID(),
       status: 'planned' as const,
+      source_type: 'carried_forward' as const,
       completed_at: null,
       priority: Math.min(3, idx + 1) as 1 | 2 | 3,
       updated_at: nowIso()
@@ -962,7 +998,7 @@ Money: ${debrief.money_score}/100
   const challenges = [
     { id: 'focus', title: 'Complete one 25-minute focus block', reward: 15, done: focusMinutesToday >= 25, action: () => pickBestOutcome() },
     { id: 'proof', title: 'Log proof before noon', reward: 15, done: (state.proof_count_today || 0) > 0, action: () => state.active_outcome_id ? logProof(state.active_outcome_id, 'Challenge proof note') : pushToast('No active outcome') },
-    { id: 'workflow', title: 'Turn one outcome into a workflow', reward: 20, done: state.events.some((e) => e.content.includes('Converted active outcome')), action: () => state.active_outcome_id ? openWorkflowDraft(state.active_outcome_id) : pushToast('Pick an outcome first') },
+    { id: 'workflow', title: 'Create one playbook from today', reward: 20, done: state.events.some((e) => e.content.includes('Created playbook')), action: () => state.active_outcome_id ? openWorkflowDraft(state.active_outcome_id) : pushToast('Pick an outcome first') },
     { id: 'debrief', title: 'Close the day with a debrief', reward: 25, done: Boolean(state.report), action: () => setShowCloseDayModal(true) }
   ];
 
@@ -1023,7 +1059,7 @@ Money: ${debrief.money_score}/100
         </div>
         {!!state.debrief && (
           <div className="mb-4 card p-4">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Daily Debrief</h2>
+            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Daily Debrief Saved</h2>
             <p className="mt-1 text-sm text-slate-300">{state.debrief.summary}</p>
             <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest win:</span> {state.debrief.biggest_win}</p>
             <p className="text-sm text-slate-300"><span className="text-slate-500">Lesson:</span> {state.debrief.lesson_learned}</p>
@@ -1031,7 +1067,7 @@ Money: ${debrief.money_score}/100
             <p className="text-xs text-slate-500">Execution {state.debrief.execution_score}/100 · Money {state.debrief.money_score}/100</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <button className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(debriefToMarkdown(state.debrief!))}>Copy debrief</button>
-              <button className="btn-ghost btn-sm" onClick={() => router.push('/reports')}>View full report</button>
+              <button className="btn-ghost btn-sm" onClick={() => router.push(`/reports/${state.debrief?.id}`)}>View full report</button>
               <button className="btn-ghost btn-sm" onClick={carryForward}>Plan tomorrow</button>
               <button className="btn-ghost btn-sm" onClick={() => setShowCloseDayModal(true)}>Regenerate</button>
             </div>
@@ -1089,6 +1125,11 @@ Money: ${debrief.money_score}/100
                         <p className="text-sm text-slate-400">{outcome.why_it_matters}</p>
                         <p className="text-xs text-slate-500">Status: {isActive ? 'active' : outcome.status} · Est {outcome.estimated_minutes}m · Actual {outcome.actual_minutes}m</p>
                         <p className="text-xs text-slate-500">Evidence: {outcome.proof_required} {outcome.proof_provided ? `· Logged: ${outcome.proof_provided}` : ''}</p>
+                        {outcome.source_type === 'workflow_step' && (
+                          <p className="text-xs text-amber-200">
+                            Linked playbook: {outcome.linked_workflow_id} · Step {outcome.linked_step_number} of {outcome.linked_step_title}
+                          </p>
+                        )}
                         <p className="text-xs text-slate-500">Quality: {quality}</p>
                         {(quality === 'Needs clarity' || quality === 'Too broad' || quality === 'Not proofable') && (
                           <button className="btn-ghost btn-sm mt-1" onClick={safeAction('Refine outcome', () => refineOutcome(outcome.id))}>Refine outcome</button>
@@ -1101,7 +1142,10 @@ Money: ${debrief.money_score}/100
                           <button className="btn-ghost btn-sm" onClick={safeAction('Log proof', () => openProofModal(outcome.id))}>Log proof</button>
                           {outcome.status === 'done' && <button className="btn-ghost btn-sm" onClick={safeAction('Turn this into a lesson', () => openLessonModal(outcome.id))}>Turn this into a lesson</button>}
                           <button className="btn-ghost btn-sm" onClick={safeAction('Edit', () => openEditOutcome(outcome.id))}>Edit</button>
-                          <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => openWorkflowDraft(outcome.id))}>Turn into workflow</button>
+                          <button className="btn-ghost btn-sm" onClick={safeAction('Create playbook', () => openWorkflowDraft(outcome.id))}>Create playbook</button>
+                          {outcome.source_type === 'workflow_step' && outcome.linked_workflow_id && (
+                            <button className="btn-ghost btn-sm" onClick={() => router.push(`/session/${outcome.linked_workflow_id}`)}>Open playbook</button>
+                          )}
                         </div>
                         {outcome.completed_at && <p className="mt-1 text-xs text-emerald-300">Completed {new Date(outcome.completed_at).toLocaleTimeString()}</p>}
                       </div>
@@ -1241,32 +1285,16 @@ Money: ${debrief.money_score}/100
 
         <div className={`${mobileTab === 'report' ? 'block' : 'hidden'} mt-5 lg:block`}>
           <div className="card p-5">
-            <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Daily Debrief</h2>
-            {state.report ? (
-              <>
-                <p className="text-sm text-slate-300"><span className="text-slate-500">Summary:</span> {state.report.summary}</p>
-                <p className="text-sm text-slate-300"><span className="text-slate-500">Completed:</span> {state.report.completed_outcomes.map((o) => o.title).join(', ') || 'none'}</p>
-                <p className="text-sm text-slate-300"><span className="text-slate-500">Blocked:</span> {state.report.blocked_outcomes.map((o) => o.title).join(', ') || 'none'}</p>
-                <p className="text-sm text-slate-300"><span className="text-slate-500">Focus minutes:</span> {state.report.total_focus_minutes}</p>
-                <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest win:</span> {state.report.wins[0] || 'n/a'}</p>
-                <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest leak:</span> {state.report.leaks[0] || 'n/a'}</p>
-                <p className="text-sm text-slate-300"><span className="text-slate-500">Execution score:</span> {state.report.execution_score}/10</p>
-                <p className="text-sm text-slate-300"><span className="text-slate-500">Money score:</span> {state.report.money_score}/10</p>
-                <p className="text-sm text-slate-300"><span className="text-slate-500">Tomorrow first action:</span> {state.report.tomorrow_first_action}</p>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  <textarea className="input min-h-16" placeholder="What moved forward today?" value={reflectionDraft.moved_forward} onChange={(e) => setReflectionDraft((p) => ({ ...p, moved_forward: e.target.value }))} />
-                  <textarea className="input min-h-16" placeholder="What created evidence?" value={reflectionDraft.proof_created} onChange={(e) => setReflectionDraft((p) => ({ ...p, proof_created: e.target.value }))} />
-                  <textarea className="input min-h-16" placeholder="What leaked time?" value={reflectionDraft.time_leak} onChange={(e) => setReflectionDraft((p) => ({ ...p, time_leak: e.target.value }))} />
-                  <textarea className="input min-h-16" placeholder="What should be repeated?" value={reflectionDraft.repeat} onChange={(e) => setReflectionDraft((p) => ({ ...p, repeat: e.target.value }))} />
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Report</h2>
+            {state.debrief ? (
+              <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
+                <p className="font-semibold text-white">Debrief saved for today.</p>
+                <p className="mt-1 text-sm text-slate-400">Open full report for details, proof history, and carry-forward actions.</p>
+                <div className="mt-2 flex gap-2">
+                  <button className="btn-secondary btn-sm" onClick={() => router.push(`/reports/${state.debrief?.id}`)}>Open report</button>
+                  <button className="btn-ghost btn-sm" onClick={() => navigator.clipboard.writeText(debriefToMarkdown(state.debrief!))}>Copy debrief</button>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button className="btn-secondary btn-sm" onClick={safeAction('Copy report', () => navigator.clipboard.writeText(JSON.stringify(state.report, null, 2)))}>Copy report</button>
-                  <button className="btn-secondary btn-sm" onClick={safeAction('Carry unfinished to tomorrow', carryForward)}>Carry unfinished to tomorrow</button>
-                  <button className="btn-ghost btn-sm" onClick={safeAction('Start tomorrow from this', carryForward)}>Start tomorrow from this</button>
-                  <button className="btn-ghost btn-sm" onClick={safeAction('Save report', () => pushToast('Report saved locally.'))}>Save report</button>
-                  <button className="btn-ghost btn-sm" onClick={safeAction('Save lesson', () => state.outcomes.find((o) => o.status === 'done') ? openLessonModal(state.outcomes.find((o) => o.status === 'done')!.id) : pushToast('Complete one outcome to save lesson'))}>Save lesson</button>
-                </div>
-              </>
+              </div>
             ) : (
               <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
                 <p className="font-semibold text-white">No report yet</p>
@@ -1495,9 +1523,10 @@ Money: ${debrief.money_score}/100
         {workflowDraftSourceId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setWorkflowDraftSourceId(null)}>
             <div className="card w-full max-w-2xl p-5" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-xl font-black">Create workflow from outcome</h2>
+              <h2 className="text-xl font-black">Create playbook from outcome</h2>
+              <p className="mt-1 text-sm text-slate-400">Use this when the outcome is repeatable. Choose step count and style, then preview before saving.</p>
               <div className="mt-3 grid gap-2 md:grid-cols-2">
-                <input className="input" value={workflowDraft.workflow_name} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, workflow_name: e.target.value }))} placeholder="Workflow name" />
+                <input className="input" value={workflowDraft.workflow_name} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, workflow_name: e.target.value }))} placeholder="Playbook name" />
                 <input className="input" value={workflowDraft.goal} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, goal: e.target.value }))} placeholder="Goal" />
                 <input className="input" value={workflowDraft.desired_result} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, desired_result: e.target.value }))} placeholder="Desired result" />
                 <input className="input" value={workflowDraft.proof_required} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, proof_required: e.target.value }))} placeholder="Proof required" />
@@ -1526,9 +1555,9 @@ Money: ${debrief.money_score}/100
                     <p className="text-xs text-slate-400">{workflowDraft.generated.steps.length} steps · {workflowDraft.generated.category}</p>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button className="btn-primary" onClick={() => finalizeWorkflowFromDraft('start')}>Start workflow</button>
-                    <button className="btn-secondary" onClick={() => finalizeWorkflowFromDraft('save')}>Save workflow</button>
-                    <button className="btn-secondary" onClick={() => finalizeWorkflowFromDraft('edit')}>Edit workflow</button>
+                    <button className="btn-primary" onClick={() => finalizeWorkflowFromDraft('start')}>Start playbook</button>
+                    <button className="btn-secondary" onClick={() => finalizeWorkflowFromDraft('save')}>Save playbook</button>
+                    <button className="btn-secondary" onClick={() => finalizeWorkflowFromDraft('edit')}>Edit playbook</button>
                     <button className="btn-ghost" onClick={() => setWorkflowDraftSourceId(null)}>Cancel</button>
                   </div>
                 </>

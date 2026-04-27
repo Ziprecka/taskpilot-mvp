@@ -10,7 +10,7 @@ import { AIChatPanel } from '@/components/AIChatPanel';
 import { ModeSelector } from '@/components/ModeSelector';
 import { UploadPanel } from '@/components/UploadPanel';
 import { getWorkflowById } from '@/data/sampleWorkflows';
-import { clampNotes, clampUploads, getGeneratedWorkflowsStorageKey, getSessionStorageKey } from '@/lib/storage';
+import { clampNotes, clampUploads, getDailyStorageKey, getGeneratedWorkflowsStorageKey, getSessionStorageKey } from '@/lib/storage';
 import { loadSessionFromSupabase, saveNote, saveReport, saveSessionState, saveUpload, syncSessionToSupabase, toCanonicalSessionState } from '@/lib/sessionPersistence';
 import type { AIResponse, ChatMessage, SessionNote, SessionUpload, TaskPilotSessionState, WorkflowMode, WorkflowSession } from '@/types/workflow';
 
@@ -432,6 +432,42 @@ export default function SessionPage() {
     saveWorkflow();
   }
 
+  function addNextStepToToday() {
+    if (!currentStep) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const key = getDailyStorageKey(today);
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : { date: today, status: 'planning', outcomes: [], events: [], coach_messages: [], last_saved_at: new Date().toISOString() };
+      const outcome = {
+        id: crypto.randomUUID(),
+        title: currentStep.title,
+        why_it_matters: currentStep.objective || workflow.completion_criteria || 'Execute linked playbook step.',
+        category: 'build',
+        priority: 1,
+        status: 'planned',
+        estimated_minutes: currentStep.estimated_minutes || 25,
+        actual_minutes: 0,
+        proof_required: currentStep.proof_required || 'Screenshot or note proving the step.',
+        proof_provided: '',
+        first_action: currentStep.instructions,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        completed_at: null,
+        source_type: 'workflow_step',
+        linked_workflow_id: workflow.id,
+        linked_session_id: session.id,
+        linked_step_number: currentStep.step_number,
+        linked_step_title: currentStep.title
+      };
+      const existing = Array.isArray(parsed.outcomes) ? parsed.outcomes : [];
+      localStorage.setItem(key, JSON.stringify({ ...parsed, outcomes: [outcome, ...existing].slice(0, 8), last_saved_at: new Date().toISOString() }));
+      setSystemNotice('Next step added to Today. Open Daily to execute in focus loop.');
+    } catch {
+      setSystemNotice('Could not add step to Today.');
+    }
+  }
+
   useEffect(() => {
     function onMarkComplete() {
       completeStep();
@@ -494,9 +530,11 @@ export default function SessionPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/daily" className="btn-ghost">Daily Mode</Link>
+            <button className="btn-secondary" onClick={addNextStepToToday}>Add next step to Today</button>
             <ModeSelector value={session.mode} onChange={(mode) => setSession((prev) => ({ ...prev, mode }))} />
           </div>
         </div>
+        <p className="mb-3 text-xs text-slate-500">Use Today when you want to execute this step inside your daily focus loop.</p>
         <div className="mb-4 flex items-center justify-between">
           <p className="text-xs text-slate-400">
             {envStatus?.supabaseEnabled ? 'Supabase Sync On' : 'Local Mode'}

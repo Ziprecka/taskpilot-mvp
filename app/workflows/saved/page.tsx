@@ -6,6 +6,7 @@ import { Nav } from '@/components/Nav';
 import { sampleWorkflows } from '@/data/sampleWorkflows';
 import { deleteGeneratedWorkflow, loadGeneratedWorkflows, saveGeneratedWorkflow } from '@/lib/workflowPersistence';
 import { getPinnedWorkflowIds, togglePinnedWorkflow } from '@/lib/pinnedWorkflows';
+import { getDailyStorageKey } from '@/lib/storage';
 import type { Workflow } from '@/types/workflow';
 
 type Source = 'built-in' | 'generated' | 'supabase' | 'local';
@@ -32,6 +33,43 @@ function downloadFile(filename: string, content: string, type = 'text/plain') {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function toTodayFromWorkflow(workflow: Workflow) {
+  const firstStep = workflow.steps.find((step) => step.step_number > 0) || workflow.steps[0];
+  if (!firstStep || typeof window === 'undefined') return;
+  const today = new Date().toISOString().slice(0, 10);
+  const key = getDailyStorageKey(today);
+  const raw = localStorage.getItem(key);
+  const parsed = raw ? JSON.parse(raw) : { date: today, outcomes: [], status: 'planning', events: [], coach_messages: [], last_saved_at: new Date().toISOString() };
+  const outcome = {
+    id: crypto.randomUUID(),
+    title: firstStep.title,
+    why_it_matters: workflow.completion_criteria || 'Execute linked playbook step inside Today.',
+    category: 'build',
+    priority: 1,
+    status: 'planned',
+    estimated_minutes: firstStep.estimated_minutes || 25,
+    actual_minutes: 0,
+    proof_required: firstStep.proof_required || 'Screenshot or note proving step completion.',
+    proof_provided: '',
+    first_action: firstStep.instructions || 'Start this step.',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    completed_at: null,
+    source_type: 'workflow_step',
+    linked_workflow_id: workflow.id,
+    linked_step_number: firstStep.step_number,
+    linked_step_title: firstStep.title
+  };
+  const existing = Array.isArray(parsed.outcomes) ? parsed.outcomes : [];
+  localStorage.setItem(key, JSON.stringify({
+    ...parsed,
+    status: parsed.status === 'complete' ? 'planning' : parsed.status,
+    outcomes: [outcome, ...existing].slice(0, 8),
+    active_outcome_id: parsed.active_outcome_id || outcome.id,
+    last_saved_at: new Date().toISOString()
+  }));
 }
 
 export default function SavedWorkflowsPage() {
@@ -147,10 +185,10 @@ export default function SavedWorkflowsPage() {
     <main>
       <Nav />
       <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
-        <h1 className="mb-2 text-3xl font-black">Workflow Library</h1>
-        <p className="mb-5 text-slate-400">Search, filter, run, export, and duplicate workflows.</p>
+        <h1 className="mb-2 text-3xl font-black">Playbook Library</h1>
+        <p className="mb-5 text-slate-400">Reusable systems for daily execution, outreach, research, building, and operations.</p>
         <div className="card mb-4 grid gap-2 p-4 md:grid-cols-4">
-          <input className="input" placeholder="Search workflows..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="input" placeholder="Search playbooks..." value={search} onChange={(e) => setSearch(e.target.value)} />
           <select className="input" value={category} onChange={(e) => setCategory(e.target.value)}>
             <option value="all">all categories</option>
             {[...new Set(rows.map((row) => row.category))].map((item) => <option key={item} value={item}>{item}</option>)}
@@ -195,8 +233,8 @@ export default function SavedWorkflowsPage() {
 
         {!filtered.length ? (
           <div className="card p-6 text-center text-slate-300">
-            <p className="mb-3">Generate your first workflow.</p>
-            <Link href="/workflows/generate" className="btn-primary">Open workflow generator</Link>
+            <p className="mb-3">Generate your first playbook.</p>
+            <Link href="/workflows/generate" className="btn-primary">Open playbook generator</Link>
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -207,17 +245,18 @@ export default function SavedWorkflowsPage() {
                 <p className="text-xs text-slate-500">source: {row.source} · quality: {row.quality}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Link className="btn-primary text-xs" href={`/session/${row.workflow.id}`}>Start</Link>
+                  <button className="btn-secondary text-xs" onClick={() => { toTodayFromWorkflow(row.workflow); window.location.href = '/daily'; }}>Run in Today</button>
+                  <button className="btn-ghost btn-sm" onClick={() => setPinned(togglePinnedWorkflow(row.workflow.id))}>{pinned.includes(row.workflow.id) ? 'Unpin' : 'Pin'}</button>
+                  <button className="btn-ghost btn-sm" onClick={() => {
+                    const next = Array.from(new Set([...archived, row.workflow.id]));
+                    setArchived(next);
+                    localStorage.setItem('taskpilot-workflow-archived', JSON.stringify(next));
+                  }}>Archive</button>
                   <details>
                     <summary className="btn-ghost btn-sm cursor-pointer">Manage</summary>
                     <div className="mt-2 flex flex-wrap gap-2 rounded-lg border border-slate-700 bg-slate-950/60 p-2">
-                      <button className="btn-ghost btn-sm" onClick={() => setPinned(togglePinnedWorkflow(row.workflow.id))}>{pinned.includes(row.workflow.id) ? 'Unpin' : 'Pin'}</button>
                       <Link className="btn-ghost btn-sm" href="/workflows/generate">Edit</Link>
                       <button className="btn-ghost btn-sm" onClick={() => setGenerated((prev) => [saveGeneratedWorkflow({ ...row.workflow, id: `${row.workflow.id}-copy-${Date.now()}` })[0], ...prev])}>Duplicate</button>
-                      <button className="btn-ghost btn-sm" onClick={() => {
-                        const next = Array.from(new Set([...archived, row.workflow.id]));
-                        setArchived(next);
-                        localStorage.setItem('taskpilot-workflow-archived', JSON.stringify(next));
-                      }}>Archive</button>
                       {row.state === 'archived' && <button className="btn-ghost btn-sm" onClick={() => {
                         const next = archived.filter((id) => id !== row.workflow.id);
                         setArchived(next);

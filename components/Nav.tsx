@@ -14,12 +14,13 @@ export function Nav() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   const primary = [
+    { href: '/dashboard', label: 'Home' },
     { href: '/daily', label: 'Today' },
-    { href: '/workflows/saved', label: 'Workflows' },
-    { href: '/dashboard', label: 'Dashboard' }
+    { href: '/workflows/saved', label: 'Playbooks' },
+    { href: '/reports', label: 'Reports' }
   ];
   const tools = [
-    { href: '/workflows/generate', label: 'Generate Workflow' },
+    { href: '/workflows/generate', label: 'Generate Playbook' },
     { href: '/demo', label: 'Demo' },
     { href: '/settings/setup', label: 'Setup' },
     { href: '/settings/deploy', label: 'Deploy' },
@@ -112,8 +113,9 @@ export function Nav() {
       {showMobileMenu && (
         <div className="border-t border-slate-800 px-4 py-2 md:hidden">
           <div className="mb-2 flex gap-2">
+            <Link href="/dashboard" className={`rounded-lg px-3 py-1 text-sm ${isActive('/dashboard') ? 'bg-slate-800 text-white' : 'text-slate-300'}`}>Home</Link>
             <Link href="/daily" className={`rounded-lg px-3 py-1 text-sm ${isActive('/daily') ? 'bg-slate-800 text-white' : 'text-slate-300'}`}>Today</Link>
-            <Link href="/dashboard" className={`rounded-lg px-3 py-1 text-sm ${isActive('/dashboard') ? 'bg-slate-800 text-white' : 'text-slate-300'}`}>Dashboard</Link>
+            <Link href="/workflows/saved" className={`rounded-lg px-3 py-1 text-sm ${isActive('/workflows/saved') ? 'bg-slate-800 text-white' : 'text-slate-300'}`}>Playbooks</Link>
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             {[...tools.slice(0, 4), ...account.slice(0, 4)].map((item) => (

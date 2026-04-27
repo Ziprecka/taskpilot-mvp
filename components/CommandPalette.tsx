@@ -7,26 +7,22 @@ type Command = { label: string; href: string };
 type ActionCommand = { label: string; action: string };
 
 const COMMANDS: Command[] = [
-  { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Daily Mode', href: '/daily' },
-  { label: 'Plan Today', href: '/daily' },
-  { label: 'Start Focus Block', href: '/daily' },
-  { label: 'Log Proof', href: '/daily' },
-  { label: 'Close the Day', href: '/daily' },
-  { label: 'Save Lesson', href: '/daily' },
-  { label: 'Improve this page', href: '/daily' },
-  { label: 'Generate Workflow', href: '/workflows/generate' },
-  { label: 'Open Workflow Library', href: '/workflows/saved' },
-  { label: 'Open Saved Sessions', href: '/sessions' },
+  { label: 'Go Home', href: '/dashboard' },
+  { label: 'Open Today', href: '/daily' },
+  { label: 'Open Playbooks', href: '/workflows/saved' },
   { label: 'Open Reports', href: '/reports' },
+  { label: 'Plan Today', href: '/daily' },
+  { label: 'Continue Current Mission', href: '/daily' },
+  { label: 'Run Playbook in Today', href: '/workflows/saved' },
+  { label: 'Create Playbook from Outcome', href: '/daily' },
+  { label: 'View Latest Debrief', href: '/reports' },
   { label: 'Open Evidence Vault', href: '/proof' },
-  { label: 'Show Weekly Progress', href: '/reports' },
-  { label: 'Start New Workflow', href: '/workflows/new' },
   { label: 'Demo', href: '/demo' },
   { label: 'Open Setup', href: '/settings/setup' },
   { label: 'Deploy', href: '/settings/deploy' },
   { label: 'Mobile', href: '/settings/mobile' },
   { label: 'Robot API', href: '/settings/robot' },
+  { label: 'Auth Debug', href: '/settings/auth-debug' },
   { label: 'Open Feedback', href: '/feedback' },
   { label: 'Account', href: '/account' },
   { label: 'Pricing', href: '/pricing' },
@@ -49,6 +45,7 @@ export function CommandPalette() {
         { label: 'Start Focus', action: 'daily-start-focus' },
         { label: 'Log Proof', action: 'daily-log-proof' },
         { label: 'Close the Day', action: 'daily-generate-report' },
+        { label: 'Create Playbook from Outcome', action: 'daily-create-playbook' },
         { label: 'Save Lesson', action: 'daily-save-lesson' }
         ,{ label: 'Improve this page', action: 'daily-improve-page' }
       ]);
