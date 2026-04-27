@@ -7,7 +7,7 @@ import { WorkflowCard } from '@/components/WorkflowCard';
 import { sampleWorkflows } from '@/data/sampleWorkflows';
 import { addRecentActivity, getRecentActivity, type TaskPilotActivity } from '@/lib/activity';
 import { getPinnedWorkflowIds, togglePinnedWorkflow } from '@/lib/pinnedWorkflows';
-import { getDailyStorageKey, getFeedbackStorageKey, getGeneratedWorkflowsStorageKey } from '@/lib/storage';
+import { getDailyStorageKey, getFeedbackStorageKey, getGeneratedWorkflowsStorageKey, getUserProgressionStorageKey } from '@/lib/storage';
 import { TASKPILOT_VERSION } from '@/lib/version';
 
 export default function DashboardPage() {
@@ -26,6 +26,8 @@ export default function DashboardPage() {
   const [weeklyFocusMinutes, setWeeklyFocusMinutes] = useState(0);
   const [dailyState, setDailyState] = useState<any>(null);
   const [prefs, setPrefs] = useState<any>(null);
+  const [tomorrowSeed, setTomorrowSeed] = useState<any>(null);
+  const [progression, setProgression] = useState<any>(null);
 
   useEffect(() => {
     void fetch('/api/auth/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => null);
@@ -73,6 +75,18 @@ export default function DashboardPage() {
       setDailyState(null);
     }
     try {
+      const progRaw = localStorage.getItem(getUserProgressionStorageKey());
+      setProgression(progRaw ? JSON.parse(progRaw) : null);
+    } catch {
+      setProgression(null);
+    }
+    try {
+      const seedRaw = localStorage.getItem('taskpilot-next-day-seed');
+      setTomorrowSeed(seedRaw ? JSON.parse(seedRaw) : null);
+    } catch {
+      setTomorrowSeed(null);
+    }
+    try {
       const reports = Object.keys(localStorage)
         .filter((key) => key.includes('taskpilot-daily-'))
         .map((key) => {
@@ -110,8 +124,8 @@ export default function DashboardPage() {
     if (String(prefs.work_type).includes('research')) return base.filter((w) => w.category === 'research' || w.category === 'productivity');
     return base;
   }, [prefs]);
-  const totalXP = Number(dailyState?.total_xp || 0);
-  const level = Number(dailyState?.level || Math.floor(totalXP / 100) + 1);
+  const totalXP = Number(progression?.total_xp || 0);
+  const level = Number(progression?.level || Math.floor(totalXP / 100) + 1);
   const lastCompleted = dailyState?.outcomes?.filter((o: any) => o.status === 'done')?.slice(-1)[0]?.title || 'No completed outcomes yet';
   const recommended = !onboardingComplete
     ? { title: 'Finish onboarding', reason: 'Personalize recommendations and coaching style.', href: '/onboarding', cta: 'Continue onboarding' }
@@ -282,6 +296,11 @@ export default function DashboardPage() {
             <p className="text-sm text-slate-400">Last completed outcome</p>
             <p className="text-lg font-bold">{lastCompleted}</p>
             <p className="text-xs text-slate-500">Keep momentum with your next mission.</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Tomorrow&apos;s first move</p>
+            <p className="text-lg font-bold">{tomorrowSeed?.tomorrow_first_move || 'Not set yet'}</p>
+            <p className="text-xs text-slate-500">{tomorrowSeed?.carry_forward?.length ? `${tomorrowSeed.carry_forward.length} carry-forward items saved.` : 'Close today to seed tomorrow.'}</p>
           </div>
         </div>
 

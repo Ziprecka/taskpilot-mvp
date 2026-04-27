@@ -13,8 +13,8 @@ export function DailyCoachCard(props: {
     <div className="rounded-xl border border-amber-500/40 bg-slate-950/70 p-4 text-sm leading-6">
       <p className="text-xs uppercase tracking-widest text-amber-200">Next Move</p>
       <p className="text-base font-semibold text-white">{fallbackMove}</p>
-      <p className="mt-2"><span className="text-slate-400">Go here:</span> <span className="text-slate-200">{ai.go_here || 'Open the active outcome card in Daily.'}</span></p>
-      <p><span className="text-slate-400">Write / Make / Do:</span> <span className="text-slate-200">{ai.write_make_do || ai.do_now || ai.next_action}</span></p>
+      <p className="mt-2"><span className="text-slate-400">Where:</span> <span className="text-slate-200">{(ai.go_here || 'Open the active outcome card in Daily.').slice(0, 84)}</span></p>
+      <p><span className="text-slate-400">Do:</span> <span className="text-slate-200">{(ai.write_make_do || ai.do_now || ai.next_action).slice(0, 130)}</span></p>
       <p><span className="text-slate-400">Proof:</span> <span className="text-slate-200">{ai.proof_needed}</span></p>
       <p><span className="text-slate-400">Timebox:</span> <span className="text-slate-200">{ai.timebox_minutes || ai.focus_minutes || ai.suggested_focus_minutes || 5}m</span></p>
       <p><span className="text-slate-400">Avoid:</span> <span className="text-slate-200">{ai.avoid || ai.drift_warning || 'Over-planning before action.'}</span></p>

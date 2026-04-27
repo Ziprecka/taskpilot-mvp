@@ -14,7 +14,7 @@ import { addRecentActivity } from '@/lib/activity';
 import { trackProductEvent } from '@/lib/productEvents';
 import { getDailyStorageKey, getReportsStorageKey, getUserProgressionStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
-import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
+import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyDebrief, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
 
 type DayType = NonNullable<DailyCommandState['selected_day_type']>;
 type DailyTab = 'outcomes' | 'focus' | 'coach' | 'timeline' | 'report';
@@ -84,6 +84,8 @@ function buildInitialState(date: string): DailyCommandState {
     events: [],
     coach_messages: [],
     report: null,
+    debrief: null,
+    closed_xp_awarded: false,
     xp_today: 0,
     proof_count_today: 0,
     lessons: [],
@@ -123,6 +125,8 @@ export default function DailyPage() {
   const [rewardData, setRewardData] = useState({ title: '', xp: 0, copy: '', next: '' });
   const [showCompleteWithoutProof, setShowCompleteWithoutProof] = useState<string | null>(null);
   const [showFocusCompleteModal, setShowFocusCompleteModal] = useState(false);
+  const [showCloseDayModal, setShowCloseDayModal] = useState(false);
+  const [showCloseWarning, setShowCloseWarning] = useState(false);
   const [copilotMode, setCopilotMode] = useState<'coach' | 'action'>('action');
   const [showCoachHistory, setShowCoachHistory] = useState(false);
   const [progression, setProgression] = useState<UserProgression>({
@@ -164,6 +168,12 @@ export default function DailyPage() {
     time_leak: '',
     repeat: '',
     avoid: '',
+    tomorrow_first_move: ''
+  });
+  const [debriefFields, setDebriefFields] = useState({
+    biggest_win: '',
+    biggest_leak: '',
+    carry_forward: '',
     tomorrow_first_move: ''
   });
 
@@ -731,53 +741,163 @@ export default function DailyPage() {
     if (action === 'log_proof') return openProofModal(state.active_outcome_id);
     if (action === 'mark_done' && state.active_outcome_id) return completeOutcome(state.active_outcome_id);
     if (action === 'create_workflow' && state.active_outcome_id) return openWorkflowDraft(state.active_outcome_id);
-    if (action === 'close_day') return generateReport();
+    if (action === 'close_day') return handleCloseDay('ai');
     if (action === 'ask_clarifying_question') return void sendCoachMessage('Ask one clarifying question before recommending next move.');
   }
 
-  function generateReport() {
+  function debriefToMarkdown(debrief: DailyDebrief) {
+    return `# Daily Debrief
+
+Summary:
+${debrief.summary}
+
+Completed:
+${debrief.completed_outcomes.map((item) => `- ${item}`).join('\n') || '- none'}
+
+Proof:
+${debrief.proof_logged.map((item) => `- ${item}`).join('\n') || '- none'}
+
+Biggest Win:
+${debrief.biggest_win}
+
+Biggest Leak:
+${debrief.biggest_leak}
+
+Lesson:
+${debrief.lesson_learned}
+
+Tomorrow's First Move:
+${debrief.tomorrow_first_move}
+
+Scores:
+Execution: ${debrief.execution_score}/100
+Money: ${debrief.money_score}/100
+`;
+  }
+
+  function buildDebrief(useAiSummary: boolean): DailyDebrief {
+    const completed = state.outcomes.filter((o) => o.status === 'done');
+    const blocked = state.outcomes.filter((o) => o.status === 'blocked');
+    const unfinished = state.outcomes.filter((o) => o.status !== 'done');
+    const totalFocusMinutes = state.active_focus_block?.actual_minutes || state.outcomes.reduce((sum, o) => sum + (o.actual_minutes || 0), 0);
+    const proofItems = (state.proof_items || []).map((item) => item.note || item.file_name || 'Proof artifact');
+    const executionScore = Math.min(100, (completed.length * 30) + Math.min(25, totalFocusMinutes) + Math.min(20, proofItems.length * 10));
+    const moneyScore = Math.min(100, completed.filter((o) => o.category === 'money').length * 35 + (proofItems.length ? 15 : 0));
+    const biggestWin = debriefFields.biggest_win.trim() || completed[0]?.title || 'Progress captured with action and proof.';
+    const biggestLeak = debriefFields.biggest_leak.trim() || blocked[0]?.blocker_note || 'No major leak logged.';
+    const tomorrowFirstMove = debriefFields.tomorrow_first_move.trim() || unfinished[0]?.first_action || unfinished[0]?.title || 'Plan top 3 outcomes before noon.';
+    const lesson = blocked.length ? `Remove blocker early: ${blocked[0].blocker_note || blocked[0].title}` : 'Short focused blocks with proof compound results.';
+    const summary = useAiSummary
+      ? `You moved ${completed.length} outcomes forward, logged ${proofItems.length} proof items, and banked ${state.xp_today || 0} XP. Next start: ${tomorrowFirstMove}.`
+      : `Closed day with ${completed.length}/${state.outcomes.length} outcomes complete and ${totalFocusMinutes} focus minutes.`;
+    return {
+      id: crypto.randomUUID(),
+      date: state.date,
+      summary,
+      completed_outcomes: completed.map((o) => o.title),
+      unfinished_outcomes: unfinished.map((o) => o.title),
+      proof_logged: proofItems,
+      focus_minutes: totalFocusMinutes,
+      xp_earned: state.xp_today || 0,
+      biggest_win: biggestWin,
+      biggest_leak: biggestLeak,
+      lesson_learned: lesson,
+      tomorrow_first_move: tomorrowFirstMove,
+      carry_forward: debriefFields.carry_forward.split(',').map((item) => item.trim()).filter(Boolean),
+      execution_score: executionScore,
+      money_score: moneyScore,
+      created_at: nowIso()
+    };
+  }
+
+  function saveDebrief(debrief: DailyDebrief) {
     const completed = state.outcomes.filter((o) => o.status === 'done');
     const blocked = state.outcomes.filter((o) => o.status === 'blocked');
     const skipped = state.outcomes.filter((o) => o.status === 'skipped');
     const unfinished = state.outcomes.filter((o) => o.status !== 'done');
-    const totalFocusMinutes = state.active_focus_block?.actual_minutes || state.outcomes.reduce((sum, o) => sum + o.actual_minutes, 0);
     const report: DailyReport = {
-      id: crypto.randomUUID(),
+      id: debrief.id,
       date: state.date,
       completed_outcomes: completed,
       blocked_outcomes: blocked,
       skipped_outcomes: skipped,
-      total_focus_minutes: totalFocusMinutes,
-      summary: `Completed ${completed.length}/${state.outcomes.length} outcomes with ${totalFocusMinutes} focus minutes.`,
-      wins: completed.map((o) => o.title),
-      leaks: blocked.map((o) => o.blocker_note || o.title),
-      tomorrow_first_action: unfinished[0] ? `Start with: ${unfinished[0].title}` : 'Start with highest-leverage new outcome.',
-      money_score: Math.min(10, completed.filter((o) => o.category === 'money').length * 4 + 2),
-      execution_score: Math.min(10, completed.length * 3 + (totalFocusMinutes >= 50 ? 2 : 0)),
-      created_at: nowIso()
+      total_focus_minutes: debrief.focus_minutes,
+      summary: debrief.summary,
+      wins: [debrief.biggest_win, ...completed.map((o) => o.title)].filter(Boolean),
+      leaks: [debrief.biggest_leak, ...blocked.map((o) => o.blocker_note || o.title)].filter(Boolean),
+      tomorrow_first_action: debrief.tomorrow_first_move || (unfinished[0] ? `Start with: ${unfinished[0].title}` : 'Plan top 3 outcomes.'),
+      money_score: Math.round(debrief.money_score / 10),
+      execution_score: Math.round(debrief.execution_score / 10),
+      created_at: debrief.created_at
     };
-    updateState((prev) => ({ ...prev, status: 'complete', report }));
+    updateState((prev) => ({ ...prev, status: 'complete', report, debrief }));
     try {
       const raw = localStorage.getItem(getReportsStorageKey());
       const list = raw ? JSON.parse(raw) : [];
-      localStorage.setItem(getReportsStorageKey(), JSON.stringify([{ id: report.id, type: 'daily', report, created_at: report.created_at }, ...(Array.isArray(list) ? list : [])].slice(0, 200)));
+      localStorage.setItem(getReportsStorageKey(), JSON.stringify([{
+        id: debrief.id,
+        type: 'daily_debrief',
+        report,
+        debrief,
+        markdown: debriefToMarkdown(debrief),
+        created_at: debrief.created_at
+      }, ...(Array.isArray(list) ? list : [])].slice(0, 200)));
     } catch {
       // ignore local report indexing failure
     }
-    logEvent('report_generated', 'Daily report generated.');
-    void trackProductEvent('daily_report_generated', '/daily', { report_id: report.id, execution_score: report.execution_score });
-    addRecentActivity({ type: 'daily_report_generated', title: 'Daily report generated', route: '/daily' });
-    const completedCount = completed.length;
-    if (completedCount > 0) {
-      setProgression((prev) => {
-        const streak = prev.current_streak + 1;
-        return { ...prev, current_streak: streak, best_streak: Math.max(prev.best_streak, streak) };
-      });
-      pushToast('Streak protected');
+    logEvent('report_generated', 'Day closed');
+    void trackProductEvent('daily_report_generated', '/daily', { report_id: debrief.id, execution_score: debrief.execution_score });
+    addRecentActivity({ type: 'daily_report_generated', title: 'Day closed with debrief', route: '/daily' });
+  }
+
+  function handleCloseDay(mode: 'ai' | 'manual' = 'ai') {
+    if (state.status === 'complete' && state.debrief) {
+      setMobileTab('report');
+      pushToast('Debrief already saved. Use Regenerate if needed.');
+      return;
     }
-    setProgression((prev) => ({ ...prev, reports_generated_total: prev.reports_generated_total + 1 }));
-    awardXP(30, 'Daily debrief generated', 'big');
-    pushToast('Day closed with report.');
+    const hasProgress = state.outcomes.some((o) => o.status === 'done') || (state.proof_items?.length || 0) > 0;
+    if (!hasProgress && !showCloseWarning) {
+      setShowCloseWarning(true);
+      return;
+    }
+    const debrief = buildDebrief(mode === 'ai');
+    saveDebrief(debrief);
+    if (!state.closed_xp_awarded) {
+      let closeXp = 30;
+      if ((state.proof_items?.length || 0) > 0) closeXp += 10;
+      if (state.outcomes.length > 0 && state.outcomes.every((o) => o.status === 'done')) closeXp += 25;
+      const hasCloseProgress = state.outcomes.some((o) => o.status === 'done') || (state.proof_items?.length || 0) > 0;
+      if (hasCloseProgress) {
+        setProgression((prev) => {
+          const streak = prev.last_active_date === today ? prev.current_streak : prev.current_streak + 1;
+          return {
+            ...prev,
+            reports_generated_total: prev.reports_generated_total + 1,
+            current_streak: streak,
+            best_streak: Math.max(prev.best_streak, streak),
+            last_active_date: today
+          };
+        });
+        pushToast('Streak protected');
+      }
+      awardXP(closeXp, 'Day closed', 'big');
+      updateState((prev) => ({ ...prev, closed_xp_awarded: true }));
+    }
+    setRewardData({
+      title: 'Day closed.',
+      xp: 30,
+      copy: 'Your progress is saved. Tomorrow has a first move.',
+      next: debrief.tomorrow_first_move
+    });
+    setShowReward(true);
+    setShowCloseDayModal(false);
+    setShowCloseWarning(false);
+    setMobileTab('report');
+  }
+
+  function generateReport() {
+    setShowCloseDayModal(true);
   }
 
   function carryForward() {
@@ -794,10 +914,23 @@ export default function DailyPage() {
     }));
     const existingRaw = localStorage.getItem(nextKey);
     const existing = existingRaw ? JSON.parse(existingRaw) : buildInitialState(nextDay.toISOString().slice(0, 10));
-    localStorage.setItem(nextKey, JSON.stringify({ ...existing, outcomes: carry }));
+    localStorage.setItem(nextKey, JSON.stringify({
+      ...existing,
+      outcomes: carry,
+      custom_context: state.debrief?.tomorrow_first_move || existing.custom_context || '',
+      next_day_seed: {
+        carry_forward: state.debrief?.carry_forward || [],
+        tomorrow_first_move: state.debrief?.tomorrow_first_move || ''
+      }
+    }));
+    localStorage.setItem('taskpilot-next-day-seed', JSON.stringify({
+      date: nextDay.toISOString().slice(0, 10),
+      carry_forward: state.debrief?.carry_forward || carry.map((item) => item.title),
+      tomorrow_first_move: state.debrief?.tomorrow_first_move || ''
+    }));
     logEvent('carry_over', `Carried ${carry.length} outcomes to tomorrow.`);
     awardXP(10, 'Carry forward', 'small');
-    pushToast('Unfinished outcomes carried to tomorrow.');
+    pushToast('Tomorrow\'s first move saved.');
   }
 
   const activeFocus = state.active_focus_block;
@@ -830,7 +963,7 @@ export default function DailyPage() {
     { id: 'focus', title: 'Complete one 25-minute focus block', reward: 15, done: focusMinutesToday >= 25, action: () => pickBestOutcome() },
     { id: 'proof', title: 'Log proof before noon', reward: 15, done: (state.proof_count_today || 0) > 0, action: () => state.active_outcome_id ? logProof(state.active_outcome_id, 'Challenge proof note') : pushToast('No active outcome') },
     { id: 'workflow', title: 'Turn one outcome into a workflow', reward: 20, done: state.events.some((e) => e.content.includes('Converted active outcome')), action: () => state.active_outcome_id ? openWorkflowDraft(state.active_outcome_id) : pushToast('Pick an outcome first') },
-    { id: 'debrief', title: 'Close the day with a debrief', reward: 25, done: Boolean(state.report), action: () => generateReport() }
+    { id: 'debrief', title: 'Close the day with a debrief', reward: 25, done: Boolean(state.report), action: () => setShowCloseDayModal(true) }
   ];
 
   function safeAction(label: string, handler?: () => void) {
@@ -857,9 +990,17 @@ export default function DailyPage() {
             <span className="badge">AI: {aiMode === 'openai' ? 'OpenAI' : 'Mock'}</span>
             <span className="badge">Sync: {syncLabel}</span>
             <span className="badge">Saved: {new Date(state.last_saved_at || nowIso()).toLocaleTimeString()}</span>
+            <button className="btn-secondary btn-sm" onClick={safeAction('Close day', () => setShowCloseDayModal(true))}>Close day</button>
             <button className="btn-ghost btn-sm" onClick={safeAction('Plan today', openPlanModal)}>Plan today</button>
             <button className="btn-ghost btn-sm" onClick={() => setShowResetConfirm(true)}>Reset day</button>
           </div>
+        </div>
+
+        <div className="mb-4 rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-sm text-slate-300">
+          {state.status === 'planning' && 'Plan today\'s outcomes.'}
+          {state.status === 'focus' && 'You are in execution mode.'}
+          {state.status === 'complete' && 'Day closed. Debrief saved.'}
+          {state.status === 'blocked' && 'Blocker detected. Resolve before continuing.'}
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2 lg:hidden">
@@ -880,6 +1021,33 @@ export default function DailyPage() {
             level={progression.level || 1}
           />
         </div>
+        {!!state.debrief && (
+          <div className="mb-4 card p-4">
+            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Daily Debrief</h2>
+            <p className="mt-1 text-sm text-slate-300">{state.debrief.summary}</p>
+            <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest win:</span> {state.debrief.biggest_win}</p>
+            <p className="text-sm text-slate-300"><span className="text-slate-500">Lesson:</span> {state.debrief.lesson_learned}</p>
+            <p className="text-sm text-slate-300"><span className="text-slate-500">Tomorrow first move:</span> {state.debrief.tomorrow_first_move}</p>
+            <p className="text-xs text-slate-500">Execution {state.debrief.execution_score}/100 · Money {state.debrief.money_score}/100</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(debriefToMarkdown(state.debrief!))}>Copy debrief</button>
+              <button className="btn-ghost btn-sm" onClick={() => router.push('/reports')}>View full report</button>
+              <button className="btn-ghost btn-sm" onClick={carryForward}>Plan tomorrow</button>
+              <button className="btn-ghost btn-sm" onClick={() => setShowCloseDayModal(true)}>Regenerate</button>
+            </div>
+          </div>
+        )}
+        <details className="mb-4 card p-4">
+          <summary className="cursor-pointer text-sm font-bold uppercase tracking-widest text-slate-400">Daily Loop Health</summary>
+          <div className="mt-2 space-y-1 text-sm text-slate-300">
+            <p>{state.outcomes.length > 0 ? '✓' : '○'} outcomes exist</p>
+            <p>{state.events.some((e) => e.type === 'started_focus') ? '✓' : '○'} focus started</p>
+            <p>{(state.proof_count_today || 0) > 0 ? '✓' : '○'} proof logged</p>
+            <p>{state.outcomes.some((o) => o.status === 'done') ? '✓' : '○'} outcome completed</p>
+            <p>{Boolean(state.debrief) ? '✓' : '○'} debrief generated</p>
+            <p>{Boolean(state.debrief?.tomorrow_first_move) ? '✓' : '○'} tomorrow move saved</p>
+          </div>
+        </details>
 
         <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr_1fr]">
           <div className={`${mobileTab === 'outcomes' ? 'block' : 'hidden'} lg:block`}>
@@ -959,9 +1127,16 @@ export default function DailyPage() {
                 </div>
               ) : (
                 <div className="space-y-2 text-sm text-slate-300">
-                  <p><span className="text-slate-500">Outcome:</span> {activeFocus.title}</p>
-                  <p><span className="text-slate-500">Current action:</span> {activeFocus.current_action}</p>
-                  <p><span className="text-slate-500">Proof needed:</span> {state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.proof_required || 'Visible progress note'}</p>
+                  <p><span className="text-slate-500">Outcome:</span> {activeFocus.title.slice(0, 80)}{activeFocus.title.length > 80 ? '...' : ''}</p>
+                  <p><span className="text-slate-500">Current action:</span> {(activeFocus.current_action || '').split('.').slice(0, 1).join('.').slice(0, 140)}</p>
+                  <p><span className="text-slate-500">Proof needed:</span> {(state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.proof_required || 'Visible progress note').slice(0, 90)}</p>
+                  {(activeFocus.title.length > 80 || (activeFocus.current_action || '').length > 140) && (
+                    <details className="rounded-lg border border-slate-700 bg-slate-900/40 p-2">
+                      <summary className="cursor-pointer text-xs text-slate-400">Details</summary>
+                      <p className="mt-1 text-xs text-slate-300">{activeFocus.title}</p>
+                      <p className="mt-1 text-xs text-slate-300">{activeFocus.current_action}</p>
+                    </details>
+                  )}
                   <p><span className="text-slate-500">Elapsed:</span> {activeFocus.actual_minutes}m / {activeFocus.planned_minutes}m</p>
                   <p><span className="text-slate-500">Drift:</span> {activeFocus.drift_score > 5 ? 'High' : 'Stable'}</p>
                   <p><span className="text-slate-500">Checkpoint:</span> {new Date(activeFocus.last_progress_at).toLocaleTimeString()}</p>
@@ -989,14 +1164,14 @@ export default function DailyPage() {
                 <DailyCoachCard ai={coachRecommendation} onAction={runCoachAction} />
               </div>
               <div className="mb-3 grid gap-2">
-                <button className={`btn-primary btn-sm ${state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'border-emerald-400' : ''}`} onClick={safeAction('Do next move', () => void sendCoachMessage(activeFocus?.status === 'active' ? 'Give next move for current focus. Keep it short.' : 'Give next move and where to go. Keep it short.'))}>
+                <button className={`btn-primary btn-sm ${state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'border-emerald-400' : ''}`} onClick={safeAction('Do next move', () => state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? setShowCloseDayModal(true) : void sendCoachMessage(activeFocus?.status === 'active' ? 'Give next move for current focus. Keep it short.' : 'Give next move and where to go. Keep it short.'))}>
                   {state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'Close day' : 'Do next move'}
                 </button>
                 <div className="flex flex-wrap gap-2">
                   <button className="btn-secondary btn-sm" onClick={safeAction('Make it tiny', () => void sendCoachMessage('Make it tiny. One 2-5 minute action only.'))}>Make it tiny</button>
                   <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(state.active_outcome_id))}>Log proof</button>
                   <button className="btn-ghost btn-sm" onClick={safeAction('I am blocked', () => void sendCoachMessage('I am blocked. Give one unblock action.'))}>I&apos;m blocked</button>
-                  <button className="btn-ghost btn-sm" onClick={safeAction('Close day', generateReport)}>Close day</button>
+                  <button className="btn-ghost btn-sm" onClick={safeAction('Close day', () => setShowCloseDayModal(true))}>{state.outcomes.length || state.proof_items?.length ? 'Close day' : 'Review day'}</button>
                 </div>
               </div>
               <button className="btn-ghost btn-sm mb-2 self-start" onClick={() => setShowCoachHistory((prev) => !prev)}>{showCoachHistory ? 'Hide history' : 'Show history'}</button>
@@ -1096,7 +1271,7 @@ export default function DailyPage() {
               <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
                 <p className="font-semibold text-white">No report yet</p>
                 <p className="mt-1 text-sm text-slate-400">Close your day with wins, leaks, carry-forward outcomes, and next action.</p>
-                <button className="btn-primary btn-sm mt-3" onClick={safeAction('Close the day', generateReport)}>Close the day</button>
+                <button className="btn-primary btn-sm mt-3" onClick={safeAction('Close the day', () => setShowCloseDayModal(true))}>Close the day</button>
               </div>
             )}
           </div>
@@ -1279,6 +1454,44 @@ export default function DailyPage() {
             </div>
           </div>
         )}
+        {showCloseDayModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => { setShowCloseDayModal(false); setShowCloseWarning(false); }}>
+            <div className="card w-full max-w-2xl p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">Close the day</h2>
+              <p className="mt-1 text-sm text-slate-400">Review what moved forward, capture lessons, and set tomorrow&apos;s first move.</p>
+              <div className="mt-3 grid gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <p>Outcomes completed: {state.outcomes.filter((o) => o.status === 'done').length} / {state.outcomes.length}</p>
+                <p>Focus minutes: {focusMinutesToday}</p>
+                <p>Proof logged: {state.proof_items?.length || 0}</p>
+                <p>XP earned today: +{state.xp_today || 0}</p>
+                <p>Current streak: {progression.current_streak}</p>
+                <p>Active unfinished outcomes: {state.outcomes.filter((o) => o.status !== 'done').length}</p>
+                <p className="md:col-span-2">Blockers: {state.outcomes.filter((o) => o.status === 'blocked').map((o) => o.blocker_note || o.title).join(', ') || 'none'}</p>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <input className="input" placeholder="Biggest win today" value={debriefFields.biggest_win} onChange={(e) => setDebriefFields((prev) => ({ ...prev, biggest_win: e.target.value }))} />
+                <input className="input" placeholder="Biggest leak / distraction" value={debriefFields.biggest_leak} onChange={(e) => setDebriefFields((prev) => ({ ...prev, biggest_leak: e.target.value }))} />
+                <input className="input" placeholder="What should carry forward?" value={debriefFields.carry_forward} onChange={(e) => setDebriefFields((prev) => ({ ...prev, carry_forward: e.target.value }))} />
+                <input className="input" placeholder="Tomorrow's first move" value={debriefFields.tomorrow_first_move} onChange={(e) => setDebriefFields((prev) => ({ ...prev, tomorrow_first_move: e.target.value }))} />
+              </div>
+              {showCloseWarning && (
+                <div className="mt-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-200">
+                  <p>You have not logged proof or completed an outcome yet. Close anyway?</p>
+                  <div className="mt-2 flex gap-2">
+                    <button className="btn-secondary btn-sm" onClick={() => { setShowCloseDayModal(false); openProofModal(state.active_outcome_id); }}>Log proof first</button>
+                    <button className="btn-danger btn-sm" onClick={() => handleCloseDay('manual')}>Close anyway</button>
+                    <button className="btn-ghost btn-sm" onClick={() => setShowCloseWarning(false)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="btn-primary" onClick={() => handleCloseDay('ai')}>Generate debrief</button>
+                <button className="btn-secondary" onClick={() => handleCloseDay('manual')}>Close without AI</button>
+                <button className="btn-ghost" onClick={() => { setShowCloseDayModal(false); setShowCloseWarning(false); }}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
         {workflowDraftSourceId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setWorkflowDraftSourceId(null)}>
             <div className="card w-full max-w-2xl p-5" onClick={(e) => e.stopPropagation()}>
@@ -1336,6 +1549,10 @@ export default function DailyPage() {
           xp={rewardData.xp}
           copy={rewardData.copy}
           next={rewardData.next}
+          primaryLabel={rewardData.title === 'Day closed.' ? 'View debrief' : 'Continue mission'}
+          secondaryLabel={rewardData.title === 'Day closed.' ? 'Plan tomorrow' : undefined}
+          onPrimary={() => { setShowReward(false); setMobileTab('report'); }}
+          onSecondary={() => { setShowReward(false); carryForward(); }}
           onClose={() => setShowReward(false)}
         />
         {showCompleteWithoutProof && (

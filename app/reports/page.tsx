@@ -6,26 +6,53 @@ import { getStorageUserKey } from '@/lib/storage';
 
 type ReportItem = {
   id: string;
-  type: 'daily' | 'workflow';
+  type: 'daily' | 'workflow' | 'daily_debrief';
   title: string;
   date: string;
   summary: string;
   markdown: string;
+  executionScore?: number;
+  moneyScore?: number;
+  completedCount?: number;
+  proofCount?: number;
 };
 
 export default function ReportsPage() {
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'daily' | 'workflow'>('all');
+  const [filter, setFilter] = useState<'all' | 'daily' | 'workflow' | 'daily_debrief'>('all');
   const [selected, setSelected] = useState<ReportItem | null>(null);
   const [items] = useState<ReportItem[]>(() => {
     const user = getStorageUserKey();
     const entries: ReportItem[] = [];
     if (typeof window === 'undefined') return entries;
+    try {
+      const indexRaw = localStorage.getItem(`taskpilot-reports-${user}`);
+      const indexed = indexRaw ? JSON.parse(indexRaw) : [];
+      if (Array.isArray(indexed)) {
+        indexed.forEach((item: any) => {
+          if (item?.type !== 'daily_debrief' || !item?.debrief) return;
+          entries.push({
+            id: item.id || crypto.randomUUID(),
+            type: 'daily_debrief',
+            title: `Daily Debrief · ${item.debrief.date}`,
+            date: item.debrief.created_at || new Date().toISOString(),
+            summary: item.debrief.summary || 'Daily debrief',
+            markdown: item.markdown || '',
+            executionScore: item.debrief.execution_score,
+            moneyScore: item.debrief.money_score,
+            completedCount: item.debrief.completed_outcomes?.length || 0,
+            proofCount: item.debrief.proof_logged?.length || 0
+          });
+        });
+      }
+    } catch {
+      // ignore invalid indexed reports
+    }
     Object.keys(localStorage).forEach((key) => {
       if (key.startsWith(`taskpilot-daily-${user}-`)) {
         try {
           const parsed = JSON.parse(localStorage.getItem(key) || '{}');
-          if (parsed?.report) {
+          if (parsed?.report && !parsed?.debrief) {
             const r = parsed.report;
             entries.push({
               id: r.id || crypto.randomUUID(),
@@ -85,8 +112,9 @@ export default function ReportsPage() {
           <div className="card p-5">
             <div className="mb-3 flex flex-wrap gap-2">
               <input className="input max-w-xs" placeholder="Search reports..." value={query} onChange={(e) => setQuery(e.target.value)} />
-              <select className="input max-w-44" value={filter} onChange={(e) => setFilter(e.target.value as 'all' | 'daily' | 'workflow')}>
+              <select className="input max-w-44" value={filter} onChange={(e) => setFilter(e.target.value as 'all' | 'daily' | 'workflow' | 'daily_debrief')}>
                 <option value="all">All</option>
+                <option value="daily_debrief">Daily Debrief</option>
                 <option value="daily">Daily</option>
                 <option value="workflow">Workflow</option>
               </select>
@@ -97,6 +125,9 @@ export default function ReportsPage() {
                   <p className="font-semibold">{item.title}</p>
                   <p className="text-xs text-slate-500">{new Date(item.date).toLocaleString()} · {item.type}</p>
                   <p className="text-sm text-slate-400">{item.summary}</p>
+                  {item.type === 'daily_debrief' && (
+                    <p className="text-xs text-slate-500">Execution {item.executionScore}/100 · Money {item.moneyScore}/100 · Completed {item.completedCount} · Proof {item.proofCount}</p>
+                  )}
                 </button>
               ))}
               {!filtered.length && <p className="text-sm text-slate-500">No reports yet.</p>}

@@ -227,6 +227,25 @@ export interface DailyReport {
   lessons_captured?: number;
 }
 
+export interface DailyDebrief {
+  id: string;
+  date: string;
+  summary: string;
+  completed_outcomes: string[];
+  unfinished_outcomes: string[];
+  proof_logged: string[];
+  focus_minutes: number;
+  xp_earned: number;
+  biggest_win: string;
+  biggest_leak: string;
+  lesson_learned: string;
+  tomorrow_first_move: string;
+  carry_forward: string[];
+  execution_score: number;
+  money_score: number;
+  created_at: string;
+}
+
 export interface DailyAIResponse {
   direct_answer: string;
   next_move?: string;
@@ -277,6 +296,8 @@ export type DailyCommandState = {
   events: DailyEvent[];
   coach_messages: DailyCoachMessage[];
   report: DailyReport | null;
+  debrief?: DailyDebrief | null;
+  closed_xp_awarded?: boolean;
   xp_today?: number;
   proof_count_today?: number;
   proof_items?: DailyProofItem[];

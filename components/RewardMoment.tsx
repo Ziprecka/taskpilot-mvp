@@ -6,6 +6,10 @@ export function RewardMoment(props: {
   xp: number;
   copy: string;
   next: string;
+  primaryLabel?: string;
+  secondaryLabel?: string;
+  onPrimary?: () => void;
+  onSecondary?: () => void;
   onClose: () => void;
 }) {
   if (!props.open) return null;
@@ -17,7 +21,12 @@ export function RewardMoment(props: {
         <p className="mt-1 text-xl font-bold text-amber-200">+{props.xp} XP</p>
         <p className="mt-2 text-sm text-slate-300">{props.copy}</p>
         <p className="mt-1 text-xs text-slate-500">Next: {props.next}</p>
-        <button className="btn-primary mt-4 w-full" onClick={props.onClose}>Continue mission</button>
+        <div className="mt-4 grid gap-2">
+          <button className="btn-primary w-full" onClick={props.onPrimary || props.onClose}>{props.primaryLabel || 'Continue mission'}</button>
+          {props.secondaryLabel && (
+            <button className="btn-ghost w-full" onClick={props.onSecondary || props.onClose}>{props.secondaryLabel}</button>
+          )}
+        </div>
       </div>
     </div>
   );
