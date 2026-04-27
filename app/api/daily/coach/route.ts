@@ -20,6 +20,16 @@ function toNextMoveShape(input: DailyAIResponse): DailyAIResponse {
   };
 }
 
+function referencesStaleTopic(ai: DailyAIResponse, body: any) {
+  const text = `${ai.next_move || ''} ${ai.go_here || ''} ${ai.write_make_do || ''} ${ai.direct_answer || ''}`.toLowerCase();
+  const allow = JSON.stringify({
+    outcomes: Array.isArray(body?.outcomes) ? body.outcomes.map((o: any) => String(o?.title || '').toLowerCase()) : [],
+    active: String(body?.focus?.title || '').toLowerCase(),
+    message: String(body?.message || '').toLowerCase()
+  });
+  return /(spy|trading|stock|options)/i.test(text) && !/(spy|trading|stock|options)/i.test(allow);
+}
+
 function sanitizeOutcome(input: string) {
   const text = input.trim();
   const lower = text.toLowerCase();
@@ -227,18 +237,16 @@ export async function POST(req: NextRequest) {
     const prompt = `You are TaskPilot Daily Command Center coach.
 Your job is to coach daily execution for general users, not just building TaskPilot.
 
-Context priority:
+Use only CURRENT DAY context:
 1) selected day type
 2) today's outcomes
 3) active focus block
-4) user's latest message
-5) blockers
-6) timeline events
-7) xp/streak state
-8) active workflow only if relevant
+4) today's proof/report state
+5) user's latest message
+6) today's blockers/events
 
 Rules:
-- Do NOT mention TaskPilot MVP unless user outcomes/focus explicitly mention it.
+- Never use old workflows, old chats, or previous-day context unless explicitly linked in today's outcomes.
 - Always prioritize the user's selected use case and current outcomes.
 - If no outcomes: direct user to create top 3 outcomes.
 - If outcomes exist and no focus is active: pick highest leverage and suggest first action.
@@ -296,6 +304,7 @@ Return strict JSON:
     const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
     const merged = toNextMoveShape({ ...mockDailyResponse(message, body), ...parsed });
     if (Array.isArray(merged.generated_outcomes)) merged.generated_outcomes = ensureScopedOutcomes(merged.generated_outcomes);
+    if (referencesStaleTopic(merged, body)) return NextResponse.json({ ok: true, data: mockDailyResponse(message, body), source: 'fallback' });
     return NextResponse.json({ ok: true, data: merged, source: 'openai' });
   } catch {
     return NextResponse.json({ ok: true, data: mockDailyResponse(message, body), source: 'mock' });

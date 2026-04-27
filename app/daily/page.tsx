@@ -72,6 +72,26 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function sortDailyOutcomes(outcomes: DailyOutcome[], activeOutcomeId: string | null) {
+  const rank = (status: DailyOutcome['status'], id: string) => {
+    if (activeOutcomeId && id === activeOutcomeId) return 1;
+    if (status === 'active') return 1;
+    if (status === 'planned' || status === 'selected') return 2;
+    if (status === 'blocked') return 3;
+    if (status === 'done') return 4;
+    return 5;
+  };
+  return [...outcomes].sort((a, b) => {
+    const diff = rank(a.status, a.id) - rank(b.status, b.id);
+    if (diff !== 0) return diff;
+    if (a.status === 'done' && b.status === 'done') return String(b.completed_at || '').localeCompare(String(a.completed_at || ''));
+    if ((a.status === 'planned' || a.status === 'selected') && (b.status === 'planned' || b.status === 'selected')) {
+      return (b.leverage_score || 0) - (a.leverage_score || 0) || String(b.created_at).localeCompare(String(a.created_at));
+    }
+    return String(b.created_at).localeCompare(String(a.created_at));
+  });
+}
+
 function buildInitialState(date: string): DailyCommandState {
   return {
     date,
@@ -129,6 +149,11 @@ export default function DailyPage() {
   const [showCloseWarning, setShowCloseWarning] = useState(false);
   const [copilotMode, setCopilotMode] = useState<'coach' | 'action'>('action');
   const [showCoachHistory, setShowCoachHistory] = useState(false);
+  const [showCompletedExpanded, setShowCompletedExpanded] = useState(false);
+  const [showChallenges, setShowChallenges] = useState(false);
+  const [showDoThisModal, setShowDoThisModal] = useState(false);
+  const [showAiDetails, setShowAiDetails] = useState(false);
+  const [isCoachLoading, setIsCoachLoading] = useState(false);
   const [progression, setProgression] = useState<UserProgression>({
     total_xp: 0,
     level: 1,
@@ -176,6 +201,8 @@ export default function DailyPage() {
     carry_forward: '',
     tomorrow_first_move: ''
   });
+
+  const [queuedPlaybookByOutcome, setQueuedPlaybookByOutcome] = useState<Record<string, string>>({});
 
   useEffect(() => {
     try {
@@ -245,6 +272,7 @@ export default function DailyPage() {
   useEffect(() => {
     if (state.active_focus_block?.status === 'active') setCopilotMode('action');
   }, [state.active_focus_block?.status]);
+
 
   useEffect(() => {
     function onAddOutcome() {
@@ -648,6 +676,10 @@ export default function DailyPage() {
   function openWorkflowDraft(id: string) {
     const outcome = state.outcomes.find((o) => o.id === id);
     if (!outcome) return;
+    if (queuedPlaybookByOutcome[id]) {
+      const proceed = window.confirm('Already created from this outcome. Create another playbook?');
+      if (!proceed) return;
+    }
     setWorkflowDraftSourceId(id);
     setWorkflowDraft({
       workflow_name: `${outcome.title} Playbook`,
@@ -700,11 +732,20 @@ export default function DailyPage() {
   function finalizeWorkflowFromDraft(action: 'start' | 'save' | 'edit') {
     const generated = workflowDraft.generated;
     if (!generated) return;
+    try {
+      const existingRaw = localStorage.getItem('taskpilot-generated-workflows');
+      const existing = existingRaw ? JSON.parse(existingRaw) : [];
+      const duplicate = Array.isArray(existing) && existing.some((wf: Workflow) => String(wf?.workflow_name || '').toLowerCase() === generated.workflow_name.toLowerCase());
+      if (duplicate && !window.confirm('A playbook with this name already exists. Save duplicate anyway?')) return;
+    } catch {
+      // ignore duplicate check errors
+    }
     saveGeneratedWorkflow(generated);
     addRecentActivity({ type: 'workflow_generated', title: `Created playbook from outcome: ${generated.workflow_name}`, route: `/session/${generated.id}` });
     logEvent('completed_action', 'Created playbook from active outcome.');
     awardXP(15, 'Playbook created', 'small');
     pushToast('Playbook created from today\'s outcome.');
+    if (workflowDraftSourceId) setQueuedPlaybookByOutcome((prev) => ({ ...prev, [workflowDraftSourceId]: generated.id }));
     setWorkflowDraftSourceId(null);
     if (action === 'start') router.push(`/session/${generated.id}`);
     if (action === 'edit') router.push('/workflows/generate');
@@ -738,37 +779,116 @@ export default function DailyPage() {
     const content = (promptOverride ?? input).trim();
     if (!content) return;
     setInput('');
+    setIsCoachLoading(true);
     const userMsg: DailyCoachMessage = { id: crypto.randomUUID(), role: 'user', content, created_at: nowIso() };
     updateState((prev) => ({ ...prev, coach_messages: [...prev.coach_messages, userMsg].slice(-80) }));
     logEvent('coach_message_sent', `Coach: ${content.slice(0, 60)}`);
-    const res = await fetch('/api/daily/coach', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: content,
-        selected_day_type: selectedDayType || dayType,
-        custom_context: customDirection,
-        dayType,
-        customDirection,
-        outcomes: state.outcomes,
-        focus: state.active_focus_block,
-        events: state.events,
-        report: state.report,
-        xp_state: { total_xp: progression.total_xp, xp_today: state.xp_today || 0, streak: progression.current_streak, level: progression.level },
-        copilot_mode: copilotMode,
-        fullState: state
-      })
+    try {
+      const res = await fetch('/api/daily/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: content,
+          selected_day_type: selectedDayType || dayType,
+          custom_context: customDirection,
+          dayType,
+          customDirection,
+          outcomes: state.outcomes,
+          focus: state.active_focus_block,
+          events: state.events,
+          report: state.report,
+          xp_state: { total_xp: progression.total_xp, xp_today: state.xp_today || 0, streak: progression.current_streak, level: progression.level },
+          copilot_mode: copilotMode,
+          fullState: state
+        })
+      });
+      const payload = await res.json();
+      const ai: DailyAIResponse = payload?.data;
+    const textBlob = `${ai?.next_move || ''} ${ai?.go_here || ''} ${ai?.write_make_do || ''} ${ai?.proof_needed || ''} ${ai?.direct_answer || ''}`.toLowerCase();
+    const stateBlob = JSON.stringify({
+      outcomes: state.outcomes.map((o) => o.title.toLowerCase()),
+      active: state.active_focus_block?.title?.toLowerCase() || '',
+      message: content.toLowerCase()
     });
-    const payload = await res.json();
-    const ai: DailyAIResponse = payload?.data;
+    const hasConcreteVerb = /(open|write|send|upload|test|record|screenshot|publish|commit|copy|start|log)/i.test(textBlob);
+    const hasProof = Boolean((ai?.proof_needed || '').trim());
+    const staleTopic = /(spy|trading|stock|options)/i.test(textBlob) && !/(spy|trading|stock|options)/i.test(stateBlob);
+    const tooLong = textBlob.split(/\s+/).filter(Boolean).length > 80;
+    const touchesState = state.outcomes.length === 0 || state.outcomes.some((o) => textBlob.includes(o.title.toLowerCase().slice(0, 20))) || textBlob.includes('focus') || textBlob.includes('plan');
+    const aiInvalid = !touchesState || !hasConcreteVerb || !hasProof || staleTopic || tooLong;
+    const fallbackMove =
+      state.active_focus_block?.status === 'active'
+        ? {
+            next_move: 'Finish current focus action.',
+            go_here: 'Current Mission card',
+            write_make_do: state.active_focus_block.current_action || 'Complete one action now.',
+            proof_needed: state.outcomes.find((o) => o.id === state.active_focus_block?.outcome_id)?.proof_required || 'Screenshot or note.',
+            timebox_minutes: 5,
+            avoid: 'Do not switch tasks.',
+            suggested_action: 'start_focus' as const
+          }
+        : state.outcomes.find((o) => o.status === 'planned' || o.status === 'selected')
+          ? {
+              next_move: 'Start highest leverage planned outcome.',
+              go_here: 'Next Up outcomes',
+              write_make_do: state.outcomes.filter((o) => o.status !== 'done').sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0]?.first_action || 'Start the top planned outcome.',
+              proof_needed: 'Log one concrete proof item.',
+              timebox_minutes: 25,
+              avoid: 'Do not over-plan.',
+              suggested_action: 'start_focus' as const
+            }
+          : state.outcomes.some((o) => o.status === 'done' && !o.proof_provided)
+            ? {
+                next_move: 'Log proof for completed work.',
+                go_here: 'Completed today section',
+                write_make_do: 'Open completed outcome and attach proof.',
+                proof_needed: 'Screenshot, link, or short note.',
+                timebox_minutes: 5,
+                avoid: 'Do not skip proof.',
+                suggested_action: 'log_proof' as const
+              }
+            : state.outcomes.length && !state.debrief
+              ? {
+                  next_move: 'Close day and save debrief.',
+                  go_here: 'Close day button',
+                  write_make_do: 'Generate debrief and set tomorrow first move.',
+                  proof_needed: 'Debrief saved with next move.',
+                  timebox_minutes: 5,
+                  avoid: 'Do not end day without debrief.',
+                  suggested_action: 'close_day' as const
+                }
+              : {
+                  next_move: 'Plan today now.',
+                  go_here: 'Plan today modal',
+                  write_make_do: 'Generate top 3 outcomes.',
+                  proof_needed: 'Three outcomes with proof requirement.',
+                  timebox_minutes: 10,
+                  avoid: 'Do not start random tasks.',
+                  suggested_action: 'none' as const
+                };
+    const sanitizedAi: DailyAIResponse = aiInvalid
+      ? {
+          ...ai,
+          ...fallbackMove,
+          direct_answer: 'Using local next move.',
+          next_action: fallbackMove.write_make_do,
+          suggested_focus_minutes: fallbackMove.timebox_minutes,
+          focus_minutes: fallbackMove.timebox_minutes,
+          drift_warning: '',
+          priority_reason: 'Local fallback selected due to low AI relevance.'
+        }
+      : ai;
     const assistant: DailyCoachMessage = {
       id: crypto.randomUUID(),
       role: 'assistant',
-      content: ai?.direct_answer || 'Pick one concrete next action and begin now.',
+      content: sanitizedAi?.direct_answer || 'Pick one concrete next action and begin now.',
       created_at: nowIso(),
-      ai
+      ai: sanitizedAi
     };
-    updateState((prev) => ({ ...prev, coach_messages: [...prev.coach_messages, assistant].slice(-80) }));
+      updateState((prev) => ({ ...prev, coach_messages: [...prev.coach_messages, assistant].slice(-80) }));
+    } finally {
+      setIsCoachLoading(false);
+    }
   }
 
   function runCoachAction(action: 'start_focus' | 'log_proof' | 'mark_done' | 'create_workflow' | 'close_day' | 'none' | 'ask_clarifying_question') {
@@ -970,6 +1090,12 @@ Money: ${debrief.money_score}/100
   }
 
   const activeFocus = state.active_focus_block;
+  const sortedOutcomes = sortDailyOutcomes(state.outcomes, state.active_outcome_id);
+  const activeOutcomeRows = sortedOutcomes.filter((o) => o.status === 'active' || o.id === state.active_outcome_id);
+  const nextUpRows = sortedOutcomes.filter((o) => o.status === 'planned' || o.status === 'selected');
+  const blockedRows = sortedOutcomes.filter((o) => o.status === 'blocked');
+  const completedRows = sortedOutcomes.filter((o) => o.status === 'done');
+  const completedCollapsedByDefault = (activeOutcomeRows.length + nextUpRows.length + blockedRows.length) > 0;
   const recommendedOutcome = [...state.outcomes]
     .filter((o) => o.status !== 'done')
     .sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0];
@@ -994,6 +1120,58 @@ Money: ${debrief.money_score}/100
           : state.report ? 'level'
             : 'reflect';
   const coachRecommendation = state.coach_messages.filter((m) => m.role === 'assistant').slice(-1)[0]?.ai;
+  const localRecommendation = useMemo(() => {
+    if (state.active_focus_block?.status === 'active') {
+      return {
+        move: 'Finish current focus action.',
+        where: 'Current Mission card',
+        do: state.active_focus_block.current_action || 'Complete one action now.',
+        proof: state.outcomes.find((o) => o.id === state.active_focus_block?.outcome_id)?.proof_required || 'Screenshot or note',
+        timebox: 5,
+        avoid: 'Do not context switch.'
+      };
+    }
+    const planned = [...state.outcomes].filter((o) => o.status === 'planned' || o.status === 'selected').sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0];
+    if (planned) {
+      return {
+        move: 'Start highest leverage planned outcome.',
+        where: 'Next Up section',
+        do: planned.first_action || planned.title,
+        proof: planned.proof_required || 'One proof item',
+        timebox: 25,
+        avoid: 'Avoid over-planning.'
+      };
+    }
+    const missingProof = state.outcomes.find((o) => o.status === 'done' && !o.proof_provided);
+    if (missingProof) {
+      return {
+        move: 'Log proof for completed work.',
+        where: 'Completed today section',
+        do: `Add proof for ${missingProof.title}`,
+        proof: missingProof.proof_required || 'Screenshot or note',
+        timebox: 5,
+        avoid: 'Do not skip proof.'
+      };
+    }
+    if (state.outcomes.length > 0 && !state.debrief) {
+      return {
+        move: 'Close day and save debrief.',
+        where: 'Close day button',
+        do: 'Generate debrief and set tomorrow move.',
+        proof: 'Debrief saved',
+        timebox: 5,
+        avoid: 'Do not end day open-loop.'
+      };
+    }
+    return {
+      move: 'Plan today now.',
+      where: 'Plan today modal',
+      do: 'Generate your top 3 outcomes.',
+      proof: 'Three proof-backed outcomes',
+      timebox: 10,
+      avoid: 'Do not start random tasks.'
+    };
+  }, [state]);
   const executionScore = Math.min(100, ((completedToday * 25) + Math.min(30, focusMinutesToday) + Math.min(20, (state.proof_count_today || 0) * 10)));
   const challenges = [
     { id: 'focus', title: 'Complete one 25-minute focus block', reward: 15, done: focusMinutesToday >= 25, action: () => pickBestOutcome() },
@@ -1108,49 +1286,108 @@ Money: ${debrief.money_score}/100
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {state.outcomes.map((outcome) => {
-                    const quality = qualityLabel(outcome.quality_score || 0);
-                    const isActive = state.active_outcome_id === outcome.id || outcome.status === 'active';
-                    return (
-                      <div key={outcome.id} className={`rounded-xl border p-3 ${isActive ? 'border-amber-400 bg-amber-400/10' : outcome.status === 'done' ? 'border-emerald-500/40 bg-emerald-400/10' : outcome.status === 'blocked' ? 'border-amber-500/60 bg-amber-500/10' : 'border-slate-700 bg-slate-950/40'}`}>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="font-semibold text-white">#{outcome.priority} {outcome.title}</p>
-                          <div className="flex gap-1">
-                            <span className="badge">{outcome.category}</span>
-                            {!!outcome.leverage_score && <span className="badge">Leverage {outcome.leverage_score}</span>}
-                            {outcome.money_potential && outcome.money_potential !== 'none' && <span className="badge">Money {outcome.money_potential}</span>}
-                          </div>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500">Current Mission</h3>
+                    {activeOutcomeRows.length ? activeOutcomeRows.slice(0, 1).map((outcome) => (
+                      <div key={outcome.id} className="rounded-xl border border-amber-400 bg-amber-400/10 p-3">
+                        <p className="font-semibold text-white">#{outcome.priority} {outcome.title}</p>
+                        <p className="text-xs text-slate-400">Do now: {outcome.first_action || 'Take first action now.'}</p>
+                        <div className="mt-2 flex gap-2">
+                          <button className="btn-primary btn-sm" onClick={() => startFocus(outcome.id)}>Focus</button>
+                          <button className="btn-secondary btn-sm" onClick={() => completeOutcome(outcome.id)}>Done</button>
+                          <button className="btn-secondary btn-sm" onClick={() => openBlockedModal(outcome.id)}>Blocked</button>
                         </div>
-                        <p className="text-sm text-slate-400">{outcome.why_it_matters}</p>
-                        <p className="text-xs text-slate-500">Status: {isActive ? 'active' : outcome.status} · Est {outcome.estimated_minutes}m · Actual {outcome.actual_minutes}m</p>
-                        <p className="text-xs text-slate-500">Evidence: {outcome.proof_required} {outcome.proof_provided ? `· Logged: ${outcome.proof_provided}` : ''}</p>
-                        {outcome.source_type === 'workflow_step' && (
-                          <p className="text-xs text-amber-200">
-                            Linked playbook: {outcome.linked_workflow_id} · Step {outcome.linked_step_number} of {outcome.linked_step_title}
-                          </p>
-                        )}
-                        <p className="text-xs text-slate-500">Quality: {quality}</p>
-                        {(quality === 'Needs clarity' || quality === 'Too broad' || quality === 'Not proofable') && (
-                          <button className="btn-ghost btn-sm mt-1" onClick={safeAction('Refine outcome', () => refineOutcome(outcome.id))}>Refine outcome</button>
-                        )}
-                        {outcome.status === 'blocked' && <p className="mt-1 text-xs text-amber-200">Blocked: {outcome.blocker_note || 'Missing blocker detail.'}</p>}
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {outcome.status !== 'done' && <button className="btn-primary btn-sm" onClick={safeAction('Focus', () => startFocus(outcome.id))}>Focus</button>}
-                          {outcome.status !== 'done' && <button className="btn-secondary btn-sm" onClick={safeAction('Done', () => completeOutcome(outcome.id))}>Done</button>}
-                          {outcome.status !== 'done' && <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(outcome.id))}>Blocked</button>}
-                          <button className="btn-ghost btn-sm" onClick={safeAction('Log proof', () => openProofModal(outcome.id))}>Log proof</button>
-                          {outcome.status === 'done' && <button className="btn-ghost btn-sm" onClick={safeAction('Turn this into a lesson', () => openLessonModal(outcome.id))}>Turn this into a lesson</button>}
-                          <button className="btn-ghost btn-sm" onClick={safeAction('Edit', () => openEditOutcome(outcome.id))}>Edit</button>
-                          <button className="btn-ghost btn-sm" onClick={safeAction('Create playbook', () => openWorkflowDraft(outcome.id))}>Create playbook</button>
-                          {outcome.source_type === 'workflow_step' && outcome.linked_workflow_id && (
-                            <button className="btn-ghost btn-sm" onClick={() => router.push(`/session/${outcome.linked_workflow_id}`)}>Open playbook</button>
-                          )}
-                        </div>
-                        {outcome.completed_at && <p className="mt-1 text-xs text-emerald-300">Completed {new Date(outcome.completed_at).toLocaleTimeString()}</p>}
                       </div>
-                    );
-                  })}
+                    )) : (
+                      <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-3 text-sm text-slate-400">No active mission. Start one from Next Up.</div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500">Next Up</h3>
+                    {nextUpRows.length ? (
+                      <div className="space-y-2">
+                        {nextUpRows.map((outcome) => (
+                          <div key={outcome.id} className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-semibold text-white">#{outcome.priority} {outcome.title}</p>
+                              {!!outcome.leverage_score && <span className="badge">Leverage {outcome.leverage_score}</span>}
+                            </div>
+                            <p className="text-xs text-slate-500">Proof: {outcome.proof_required}</p>
+                            <div className="mt-2 flex gap-2">
+                              <button className="btn-primary btn-sm" onClick={() => startFocus(outcome.id)}>Focus</button>
+                              <button className="btn-ghost btn-sm" onClick={() => openEditOutcome(outcome.id)}>Edit</button>
+                              <button className="btn-ghost btn-sm" onClick={() => openWorkflowDraft(outcome.id)}>Create playbook</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-3 text-sm text-slate-400">All planned outcomes are complete. Close the day or add another outcome.</div>
+                    )}
+                  </div>
+
+                  {!!blockedRows.length && (
+                    <div>
+                      <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500">Blocked</h3>
+                      <div className="space-y-2">
+                        {blockedRows.map((outcome) => (
+                          <div key={outcome.id} className="rounded-xl border border-amber-500/60 bg-amber-500/10 p-3">
+                            <p className="font-semibold text-white">{outcome.title}</p>
+                            <p className="text-xs text-amber-200">{outcome.blocker_note || 'Missing blocker detail.'}</p>
+                            <div className="mt-2 flex gap-2">
+                              <button className="btn-secondary btn-sm" onClick={() => openEditOutcome(outcome.id)}>Update</button>
+                              <button className="btn-ghost btn-sm" onClick={() => startFocus(outcome.id)}>Retry focus</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {!!completedRows.length && (
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-xs font-bold uppercase tracking-widest text-emerald-300">Completed today</h3>
+                        <button className="btn-ghost btn-sm" onClick={() => setShowCompletedExpanded((v) => !v)}>
+                          {(showCompletedExpanded || !completedCollapsedByDefault) ? 'Collapse' : 'Expand'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        Completed today: {completedRows.length} · XP earned: +{state.xp_today || 0} · Proof: {state.proof_count_today || 0}
+                      </p>
+                      {(showCompletedExpanded || !completedCollapsedByDefault) ? (
+                        <div className="mt-2 space-y-2">
+                          {completedRows.map((outcome) => (
+                            <div key={outcome.id} className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2">
+                              <p className="text-sm font-semibold text-white">{outcome.title}</p>
+                              <p className="text-xs text-emerald-200">Completed {outcome.completed_at ? new Date(outcome.completed_at).toLocaleTimeString() : ''}</p>
+                              <div className="mt-1 flex flex-wrap gap-2">
+                                <button className="btn-ghost btn-sm" onClick={() => openProofModal(outcome.id)}>View proof</button>
+                                <button className="btn-ghost btn-sm" onClick={() => openWorkflowDraft(outcome.id)}>Create playbook</button>
+                                <button className="btn-ghost btn-sm" onClick={() => openLessonModal(outcome.id)}>Save lesson</button>
+                                {queuedPlaybookByOutcome[outcome.id] && <span className="badge">Already created from this outcome</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-2 space-y-1">
+                          {completedRows.map((outcome) => (
+                            <div key={outcome.id} className="flex items-center justify-between rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2 py-1">
+                              <p className="truncate pr-2 text-xs text-slate-200">{outcome.title}</p>
+                              <div className="flex items-center gap-2 text-xs text-slate-400">
+                                <span>{outcome.completed_at ? new Date(outcome.completed_at).toLocaleTimeString() : ''}</span>
+                                <span>Proof {outcome.proof_provided ? 1 : 0}</span>
+                                <button className="btn-ghost btn-sm" onClick={() => openProofModal(outcome.id)}>View</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1199,26 +1436,52 @@ Money: ${debrief.money_score}/100
 
           <div className={`${mobileTab === 'coach' ? 'block' : 'hidden'} lg:block`}>
             <div className="card flex h-[520px] sm:h-[620px] flex-col p-5">
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Daily Copilot</h2>
-              <div className="mb-2 flex gap-2">
-                <button className={`btn-secondary btn-sm ${copilotMode === 'coach' ? 'border-amber-400 text-amber-100' : ''}`} onClick={() => setCopilotMode('coach')}>Coach</button>
-                <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-100' : ''}`} onClick={() => setCopilotMode('action')}>Action</button>
+              <h2 className="mb-1 text-sm font-bold uppercase tracking-widest text-slate-400">Next Move</h2>
+              <p className="mb-2 text-xs text-slate-500">TaskPilot chooses the next concrete action.</p>
+              <div className="mb-2 rounded-lg border border-slate-700 bg-slate-950/60 p-2 text-xs text-slate-300">
+                Suggested now: {localRecommendation.move}
               </div>
               <div className="mb-3">
-                <DailyCoachCard ai={coachRecommendation} onAction={runCoachAction} />
+                {isCoachLoading ? (
+                  <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-3">
+                    <div className="mb-2 h-4 w-3/5 animate-pulse rounded bg-slate-800" />
+                    <div className="mb-2 h-3 w-2/3 animate-pulse rounded bg-slate-800" />
+                    <div className="h-3 w-1/2 animate-pulse rounded bg-slate-800" />
+                  </div>
+                ) : (
+                  <div>
+                    <DailyCoachCard ai={coachRecommendation || {
+                      direct_answer: 'Using local next move.',
+                      next_action: localRecommendation.do,
+                      proof_needed: localRecommendation.proof,
+                      suggested_focus_minutes: localRecommendation.timebox,
+                      drift_warning: '',
+                      priority_reason: 'Local recommendation',
+                      next_move: localRecommendation.move,
+                      go_here: localRecommendation.where,
+                      write_make_do: localRecommendation.do,
+                      avoid: localRecommendation.avoid
+                    }} onAction={runCoachAction} />
+                    <button className="btn-ghost btn-sm mt-2" onClick={() => setShowAiDetails((p) => !p)}>{showAiDetails ? 'Hide details' : 'Details'}</button>
+                  </div>
+                )}
               </div>
               <div className="mb-3 grid gap-2">
-                <button className={`btn-primary btn-sm ${state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'border-emerald-400' : ''}`} onClick={safeAction('Do next move', () => state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? setShowCloseDayModal(true) : void sendCoachMessage(activeFocus?.status === 'active' ? 'Give next move for current focus. Keep it short.' : 'Give next move and where to go. Keep it short.'))}>
-                  {state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'Close day' : 'Do next move'}
+                <button className={`btn-primary btn-sm ${state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'border-emerald-400' : ''}`} onClick={safeAction('Do this', () => {
+                  if (state.outcomes.every((o) => o.status === 'done') && state.outcomes.length) return setShowCloseDayModal(true);
+                  if (activeFocus?.status === 'active') return setShowDoThisModal(true);
+                  if (recommendedOutcome) return startFocus(recommendedOutcome.id);
+                  return openPlanModal();
+                })}>
+                  {state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'Close day' : 'Do this'}
                 </button>
                 <div className="flex flex-wrap gap-2">
-                  <button className="btn-secondary btn-sm" onClick={safeAction('Make it tiny', () => void sendCoachMessage('Make it tiny. One 2-5 minute action only.'))}>Make it tiny</button>
+                  <button className="btn-secondary btn-sm" onClick={safeAction('Make smaller', () => void sendCoachMessage('Make it tiny. One 2-5 minute action only.'))}>Make smaller</button>
                   <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(state.active_outcome_id))}>Log proof</button>
                   <button className="btn-ghost btn-sm" onClick={safeAction('I am blocked', () => void sendCoachMessage('I am blocked. Give one unblock action.'))}>I&apos;m blocked</button>
-                  <button className="btn-ghost btn-sm" onClick={safeAction('Close day', () => setShowCloseDayModal(true))}>{state.outcomes.length || state.proof_items?.length ? 'Close day' : 'Review day'}</button>
                 </div>
               </div>
-              <button className="btn-ghost btn-sm mb-2 self-start" onClick={() => setShowCoachHistory((prev) => !prev)}>{showCoachHistory ? 'Hide history' : 'Show history'}</button>
+              <button className="btn-ghost btn-sm mb-2 self-start" onClick={() => setShowCoachHistory((prev) => !prev)}>{showCoachHistory ? 'Hide history' : 'History'}</button>
               {showCoachHistory && (
                 <div className="min-h-0 max-h-[320px] flex-1 space-y-2 overflow-y-auto rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-[15px] leading-7">
                   {state.coach_messages.map((m) => (
@@ -1241,24 +1504,30 @@ Money: ${debrief.money_score}/100
               </div>
             </div>
             <div className="card mt-4 p-4">
-              <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Daily challenges</h3>
-              <div className="mt-2 space-y-2">
-                {challenges.map((challenge) => (
-                  <div key={challenge.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-2 text-sm">
-                    <p className="font-semibold">{challenge.title}</p>
-                    <p className="text-xs text-slate-500">Reward: +{challenge.reward} XP</p>
-                    <button className="btn-ghost btn-sm mt-1" disabled={challenge.done} onClick={() => challenge.action()}>
-                      {challenge.done ? 'Completed' : 'Start'}
-                    </button>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Daily challenges</h3>
+                <button className="btn-ghost btn-sm" onClick={() => setShowChallenges((v) => !v)}>{showChallenges ? 'Hide' : 'Show'}</button>
               </div>
+              {showChallenges && (
+                <div className="mt-2 space-y-2">
+                  {challenges.map((challenge) => (
+                    <div key={challenge.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-2 text-sm">
+                      <p className="font-semibold">{challenge.title}</p>
+                      <p className="text-xs text-slate-500">Reward: +{challenge.reward} XP</p>
+                      <button className="btn-ghost btn-sm mt-1" disabled={challenge.done} onClick={() => challenge.action()}>
+                        {challenge.done ? 'Completed' : 'Start'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         <div className={`${mobileTab === 'timeline' ? 'block' : 'hidden'} mt-5 lg:block`}>
-          <div className="card p-5">
+          <details className="card p-5" open={mobileTab === 'timeline' && state.status === 'complete'}>
+            <summary className="cursor-pointer text-sm font-bold uppercase tracking-widest text-slate-400">Progress Timeline</summary>
             <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Progress Timeline</h2>
             <div className="space-y-1 text-sm text-slate-300">
               {shownEvents.map((event) => (
@@ -1280,11 +1549,12 @@ Money: ${debrief.money_score}/100
               {!state.events.length && <p className="text-slate-500">No progress logged yet. Start a focus block or mark an outcome complete.</p>}
             </div>
             {state.events.length > 10 && <button className="btn-ghost btn-sm mt-2" onClick={() => setShowAllEvents((prev) => !prev)}>{showAllEvents ? 'View latest 10' : 'View all'}</button>}
-          </div>
+          </details>
         </div>
 
         <div className={`${mobileTab === 'report' ? 'block' : 'hidden'} mt-5 lg:block`}>
-          <div className="card p-5">
+          <details className="card p-5" open={state.status === 'complete'}>
+            <summary className="cursor-pointer text-sm font-bold uppercase tracking-widest text-slate-400">Report</summary>
             <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Report</h2>
             {state.debrief ? (
               <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
@@ -1302,7 +1572,7 @@ Money: ${debrief.money_score}/100
                 <button className="btn-primary btn-sm mt-3" onClick={safeAction('Close the day', () => setShowCloseDayModal(true))}>Close the day</button>
               </div>
             )}
-          </div>
+          </details>
         </div>
 
         {!!state.lessons?.length && (
@@ -1606,6 +1876,27 @@ Money: ${debrief.money_score}/100
                 <button className="btn-secondary" onClick={() => { setShowFocusCompleteModal(false); openProofModal(state.active_outcome_id); }}>Log proof</button>
                 <button className="btn-primary" onClick={() => { setShowFocusCompleteModal(false); if (state.active_outcome_id) completeOutcome(state.active_outcome_id); }}>Mark outcome done</button>
                 <button className="btn-ghost" onClick={() => setShowFocusCompleteModal(false)}>Continue focus</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showDoThisModal && activeFocus?.status === 'active' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowDoThisModal(false)}>
+            <div className="card w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">Do this now</h2>
+              <p className="mt-1 text-sm text-slate-400">Where: {coachRecommendation?.go_here || localRecommendation.where}</p>
+              <p className="mt-1 text-sm text-slate-300">What: {coachRecommendation?.write_make_do || localRecommendation.do}</p>
+              <p className="mt-1 text-sm text-slate-300">Proof: {coachRecommendation?.proof_needed || localRecommendation.proof}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="btn-secondary btn-sm" onClick={() => {
+                  updateState((prev) => ({
+                    ...prev,
+                    active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, planned_minutes: 5 } : prev.active_focus_block
+                  }));
+                  pushToast('Timer set to 5 minutes.');
+                }}>Start 5-min timer</button>
+                <button className="btn-secondary btn-sm" onClick={() => { setShowDoThisModal(false); openProofModal(activeFocus.outcome_id); }}>Log proof</button>
+                <button className="btn-primary btn-sm" onClick={() => { setShowDoThisModal(false); if (state.active_outcome_id) completeOutcome(state.active_outcome_id); }}>Mark action done</button>
               </div>
             </div>
           </div>
