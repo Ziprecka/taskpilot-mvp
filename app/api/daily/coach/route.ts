@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAIClient } from '@/lib/openai';
 import type { DailyAIResponse } from '@/types/workflow';
 
+function sanitizeOutcome(input: string) {
+  const text = input.trim();
+  const lower = text.toLowerCase();
+  if (!text) return 'Define one concrete daily outcome with proof.';
+  if (lower.includes('antigravity') || lower.includes('time machine') || lower.includes('teleport')) {
+    return 'Research feasibility of the idea and produce a notes doc with 3 credible sources and 3 open questions.';
+  }
+  if (text.length < 12 || /improve productivity|work on project|research more|finalize mvp|develop core modules/i.test(text)) {
+    return 'Rewrite as one-day scoped result with visible proof and a first action.';
+  }
+  return text;
+}
+
+function ensureScopedOutcomes(outcomes: string[]) {
+  return outcomes.slice(0, 3).map((item) => sanitizeOutcome(item));
+}
+
 function mockDailyResponse(message: string, body: any): DailyAIResponse & { generated_outcomes?: string[] } {
   const outcomes = Array.isArray(body?.outcomes) ? body.outcomes : [];
   const focus = body?.focus;
@@ -24,7 +41,7 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
       focus_minutes: 25,
       drift_warning: '',
       priority_reason: 'Structured priorities reduce drift and improve completion odds.',
-      generated_outcomes: map[dayType] || map.personal
+      generated_outcomes: ensureScopedOutcomes(map[dayType] || map.personal)
     };
   }
   if (lower.includes('5 minute') || lower.includes('reduce')) {
@@ -60,7 +77,9 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
     suggested_focus_minutes: 25,
     focus_minutes: 25,
     drift_warning: lower.includes('stuck') ? 'You are drifting into ambiguity. Choose one executable action now.' : (focus ? 'Avoid context switching before closing this action.' : ''),
-    priority_reason: 'Execution on one high-value outcome compounds faster than parallel partial progress.'
+    priority_reason: 'Execution on one high-value outcome compounds faster than parallel partial progress.',
+    current_state_read: focus ? `Focus active on ${focus.title}` : `Outcomes ready: ${outcomes.length}`,
+    recommended_outcome_id: outcomes[0]?.id ?? null
   };
 }
 
@@ -93,9 +112,14 @@ Rules:
 Return strict JSON:
 {
  "direct_answer": string,
+ "current_state_read": string,
+ "recommended_outcome_id": string|null,
  "next_action": string,
  "proof_needed": string,
  "focus_minutes": number,
+ "should_start_focus": boolean,
+ "should_mark_done": boolean,
+ "should_create_workflow": boolean,
  "priority_reason": string,
  "drift_warning": string,
  "suggested_outcome_update": string (optional),
@@ -110,7 +134,9 @@ Return strict JSON:
       response_format: { type: 'json_object' }
     });
     const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
-    return NextResponse.json({ ok: true, data: { ...mockDailyResponse(message, body), ...parsed }, source: 'openai' });
+    const merged = { ...mockDailyResponse(message, body), ...parsed };
+    if (Array.isArray(merged.generated_outcomes)) merged.generated_outcomes = ensureScopedOutcomes(merged.generated_outcomes);
+    return NextResponse.json({ ok: true, data: merged, source: 'openai' });
   } catch {
     return NextResponse.json({ ok: true, data: mockDailyResponse(message, body), source: 'mock' });
   }

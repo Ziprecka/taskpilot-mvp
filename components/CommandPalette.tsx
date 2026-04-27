@@ -1,32 +1,58 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 type Command = { label: string; href: string };
+type ActionCommand = { label: string; action: string };
 
 const COMMANDS: Command[] = [
   { label: 'Dashboard', href: '/dashboard' },
   { label: 'Daily Mode', href: '/daily' },
+  { label: 'Plan Today', href: '/daily' },
   { label: 'Generate Workflow', href: '/workflows/generate' },
-  { label: 'Saved Workflows', href: '/workflows/saved' },
-  { label: 'Saved Sessions', href: '/sessions' },
+  { label: 'Open Workflow Library', href: '/workflows/saved' },
+  { label: 'Open Saved Sessions', href: '/sessions' },
   { label: 'Start New Workflow', href: '/workflows/new' },
   { label: 'Demo', href: '/demo' },
-  { label: 'Setup', href: '/settings/setup' },
+  { label: 'Open Setup', href: '/settings/setup' },
   { label: 'Deploy', href: '/settings/deploy' },
   { label: 'Mobile', href: '/settings/mobile' },
   { label: 'Robot API', href: '/settings/robot' },
-  { label: 'Feedback', href: '/feedback' },
+  { label: 'Open Feedback', href: '/feedback' },
   { label: 'Account', href: '/account' },
-  { label: 'Pricing', href: '/pricing' }
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'Logout', href: '/logout' }
 ];
 
 export function CommandPalette() {
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [dynamicCommands, setDynamicCommands] = useState<Command[]>([]);
+  const [contextActions, setContextActions] = useState<ActionCommand[]>([]);
+
+  useEffect(() => {
+    if (pathname.startsWith('/daily')) {
+      setContextActions([
+        { label: 'New Daily Outcome', action: 'daily-add-outcome' },
+        { label: 'Plan Today', action: 'daily-plan-today' },
+        { label: 'Start Focus', action: 'daily-start-focus' },
+        { label: 'Generate Daily Report', action: 'daily-generate-report' }
+      ]);
+      return;
+    }
+    if (pathname.startsWith('/session/')) {
+      setContextActions([
+        { label: 'Mark Step Complete', action: 'session-mark-complete' },
+        { label: 'Ask AI What Next', action: 'session-ask-what-next' },
+        { label: 'Generate Session Report', action: 'session-generate-report' }
+      ]);
+      return;
+    }
+    setContextActions([]);
+  }, [pathname]);
 
   useEffect(() => {
     try {
@@ -44,6 +70,10 @@ export function CommandPalette() {
   const filtered = useMemo(
     () => [...dynamicCommands, ...COMMANDS].filter((item) => item.label.toLowerCase().includes(query.toLowerCase())),
     [query, dynamicCommands]
+  );
+  const filteredActions = useMemo(
+    () => contextActions.filter((item) => item.label.toLowerCase().includes(query.toLowerCase())),
+    [query, contextActions]
   );
 
   useEffect(() => {
@@ -72,6 +102,18 @@ export function CommandPalette() {
       <div className="card w-full max-w-xl p-3" onClick={(e) => e.stopPropagation()}>
         <input className="input" autoFocus placeholder="Search commands..." value={query} onChange={(e) => setQuery(e.target.value)} />
         <div className="mt-2 max-h-80 space-y-1 overflow-y-auto">
+          {filteredActions.map((item) => (
+            <button
+              key={item.action}
+              className="btn-secondary btn-sm w-full justify-start text-left"
+              onClick={() => {
+                setOpen(false);
+                window.dispatchEvent(new CustomEvent(item.action));
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
           {filtered.map((item) => (
             <button
               key={item.href}

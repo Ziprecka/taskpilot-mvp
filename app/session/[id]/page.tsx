@@ -431,6 +431,26 @@ export default function SessionPage() {
     saveWorkflow();
   }
 
+  useEffect(() => {
+    function onMarkComplete() {
+      completeStep();
+    }
+    function onAskWhatNext() {
+      setQueuedPrompt('Based on current step and context, what is the best next move right now?');
+    }
+    function onGenerateSessionReport() {
+      generateReport();
+    }
+    window.addEventListener('session-mark-complete', onMarkComplete as EventListener);
+    window.addEventListener('session-ask-what-next', onAskWhatNext as EventListener);
+    window.addEventListener('session-generate-report', onGenerateSessionReport as EventListener);
+    return () => {
+      window.removeEventListener('session-mark-complete', onMarkComplete as EventListener);
+      window.removeEventListener('session-ask-what-next', onAskWhatNext as EventListener);
+      window.removeEventListener('session-generate-report', onGenerateSessionReport as EventListener);
+    };
+  }, [session.current_step, session.completed_steps.length, workflow.steps.length]);
+
   const canonicalState: TaskPilotSessionState = toCanonicalSessionState({
     session_id: session.id,
     workflow_slug: workflow.id,

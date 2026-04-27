@@ -147,11 +147,19 @@ export interface DailyOutcome {
   why_it_matters: string;
   category: 'money' | 'build' | 'marketing' | 'learning' | 'admin' | 'health' | 'other';
   priority: 1 | 2 | 3;
-  status: 'planned' | 'active' | 'done' | 'blocked' | 'skipped';
+  status: 'planned' | 'selected' | 'active' | 'done' | 'blocked' | 'skipped';
   estimated_minutes: number;
   actual_minutes: number;
   proof_required: string;
   proof_provided: string;
+  first_action?: string;
+  value_score?: number;
+  quality_score?: number;
+  leverage_score?: number;
+  money_potential?: 'none' | 'low' | 'medium' | 'high';
+  urgency?: 'low' | 'medium' | 'high';
+  effort?: 'low' | 'medium' | 'high';
+  blocker_note?: string;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -209,15 +217,43 @@ export interface DailyReport {
 
 export interface DailyAIResponse {
   direct_answer: string;
+  current_state_read?: string;
+  recommended_outcome_id?: string | null;
   next_action: string;
   proof_needed: string;
   suggested_focus_minutes: number;
   focus_minutes?: number;
+  should_start_focus?: boolean;
+  should_mark_done?: boolean;
+  should_create_workflow?: boolean;
   drift_warning: string;
   priority_reason: string;
   suggested_outcome_update?: string;
   updated_outcome_status?: string;
+  generated_outcomes?: string[];
 }
+
+export interface DailyCoachMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+  ai?: DailyAIResponse;
+}
+
+export type DailyCommandState = {
+  date: string;
+  status: 'planning' | 'focus' | 'blocked' | 'complete';
+  selected_day_type: 'build' | 'money' | 'admin' | 'learning' | 'personal' | 'custom' | null;
+  custom_context: string;
+  outcomes: DailyOutcome[];
+  active_outcome_id: string | null;
+  active_focus_block: FocusBlock | null;
+  events: DailyEvent[];
+  coach_messages: DailyCoachMessage[];
+  report: DailyReport | null;
+  last_saved_at: string;
+};
 
 export type AIIntent =
   | 'next_step'

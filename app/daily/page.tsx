@@ -1,220 +1,484 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Nav } from '@/components/Nav';
+import { useToast } from '@/components/ToastProvider';
 import { addRecentActivity } from '@/lib/activity';
 import { getDailyStorageKey } from '@/lib/storage';
-import type { DailyAIResponse, DailyEvent, DailyOutcome, DailyReport, FocusBlock } from '@/types/workflow';
+import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
+import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyEvent, DailyOutcome, DailyReport, FocusBlock, Workflow } from '@/types/workflow';
 
-interface CoachMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  created_at: string;
-  ai?: DailyAIResponse;
-}
-
-type DayType = 'build' | 'money' | 'admin' | 'learning' | 'personal' | 'custom';
+type DayType = NonNullable<DailyCommandState['selected_day_type']>;
 type DailyTab = 'outcomes' | 'focus' | 'coach' | 'timeline' | 'report';
 
-const OUTCOME_TEMPLATES: Record<DayType, string[]> = {
-  build: ['Ship one scoped improvement', 'Fix highest-visibility UX issue', 'Record proof/demo of progress'],
-  money: ['Send 10 targeted outreach messages', 'Create one sales asset', 'Follow up with 3 warm leads'],
-  admin: ['Clear highest-risk overdue task', 'Organize one recurring system', 'Document one SOP'],
-  learning: ['Complete one learning sprint with proof', 'Apply one new skill in practice', 'Summarize learning into notes'],
-  personal: ['Finish one meaningful personal task', 'Protect one focus block', 'Close one open loop'],
-  custom: ['Define one high-impact outcome', 'Break it into one executable action', 'Capture proof by day end']
+type OutcomeQuality = {
+  clarity: number;
+  realism: number;
+  proofability: number;
+  daily_scope: number;
+  value: number;
+  issues: string[];
+  rewrite_suggestion: string;
 };
 
+const BASE_OUTCOME_LIBRARY: Record<DayType, string[]> = {
+  build: ['Ship one scoped product improvement', 'Fix one visible bug', 'Record a progress demo'],
+  money: ['Send 10 targeted outreach messages', 'Create one conversion asset', 'Follow up with 3 warm leads'],
+  admin: ['Clear the highest-risk overdue task', 'Document one recurring SOP', 'Organize one repeated system'],
+  learning: ['Learn one concept and produce proof notes', 'Apply one concept in a tiny artifact', 'Summarize key takeaways'],
+  personal: ['Complete one meaningful personal task', 'Run one deep focus block', 'Close one open loop'],
+  custom: ['Define one concrete one-day outcome', 'Set first action and proof requirement', 'Complete one focus block']
+};
+
+function evaluateOutcomeQuality(title: string, proofRequired: string): OutcomeQuality {
+  const lower = title.toLowerCase();
+  const issues: string[] = [];
+  if (title.length < 18) issues.push('Too short/vague');
+  if (/improve productivity|work on project|research more|finalize mvp|develop core modules/i.test(lower)) issues.push('Too broad');
+  if (/antigravity|teleport|time travel|infinite energy/i.test(lower)) issues.push('Unrealistic claim');
+  if (!proofRequired.trim()) issues.push('Missing proof definition');
+  const clarity = Math.max(0, 10 - (issues.includes('Too short/vague') ? 4 : 0) - (issues.includes('Too broad') ? 3 : 0));
+  const realism = issues.includes('Unrealistic claim') ? 2 : 9;
+  const proofability = proofRequired.trim() ? 8 : 3;
+  const daily_scope = issues.includes('Too broad') ? 4 : 8;
+  const value = /money|client|sales|ship|fix|deploy/i.test(lower) ? 8 : 6;
+  return {
+    clarity,
+    realism,
+    proofability,
+    daily_scope,
+    value,
+    issues,
+    rewrite_suggestion: issues.length ? 'Rewrite into one-day scoped output with visible proof and first action.' : ''
+  };
+}
+
+function qualityLabel(score: number) {
+  if (score >= 8) return 'Strong';
+  if (score >= 6) return 'Needs clarity';
+  if (score >= 4) return 'Too broad';
+  return 'Not proofable';
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function buildInitialState(date: string): DailyCommandState {
+  return {
+    date,
+    status: 'planning',
+    selected_day_type: null,
+    custom_context: '',
+    outcomes: [],
+    active_outcome_id: null,
+    active_focus_block: null,
+    events: [],
+    coach_messages: [],
+    report: null,
+    last_saved_at: nowIso()
+  };
+}
+
 export default function DailyPage() {
+  const router = useRouter();
+  const { pushToast } = useToast();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const storageKey = getDailyStorageKey(today);
-  const [outcomes, setOutcomes] = useState<DailyOutcome[]>([]);
-  const [focus, setFocus] = useState<FocusBlock | null>(null);
-  const [events, setEvents] = useState<DailyEvent[]>([]);
-  const [report, setReport] = useState<DailyReport | null>(null);
-  const [messages, setMessages] = useState<CoachMessage[]>([]);
+
+  const [state, setState] = useState<DailyCommandState>(buildInitialState(today));
+  const [mobileTab, setMobileTab] = useState<DailyTab>('outcomes');
   const [input, setInput] = useState('');
   const [aiMode, setAiMode] = useState<'openai' | 'mock'>('mock');
   const [syncLabel, setSyncLabel] = useState('Local');
-  const [mobileTab, setMobileTab] = useState<DailyTab>('outcomes');
-  const [dayType, setDayType] = useState<DayType>('personal');
-  const [customDirection, setCustomDirection] = useState('');
   const [showPlanModal, setShowPlanModal] = useState(false);
-  const [focusNow, setFocusNow] = useState<number>(0);
-  const [proofInput, setProofInput] = useState('');
+  const [showPlanReview, setShowPlanReview] = useState(false);
+  const [proposedOutcomes, setProposedOutcomes] = useState<DailyOutcome[]>([]);
+  const [customDirection, setCustomDirection] = useState('');
+  const [dayType, setDayType] = useState<DayType>('personal');
   const [editingOutcomeId, setEditingOutcomeId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState('');
-  const [editingWhy, setEditingWhy] = useState('');
-
-  const dailyState = focus?.status === 'blocked' ? 'Blocked' : focus?.status === 'active' ? 'Focus mode' : outcomes.length ? 'Planning' : 'Planning';
+  const [editingDraft, setEditingDraft] = useState<Partial<DailyOutcome>>({});
+  const [blockerModalOutcomeId, setBlockerModalOutcomeId] = useState<string | null>(null);
+  const [blockerNote, setBlockerNote] = useState('');
+  const [showAllEvents, setShowAllEvents] = useState(false);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        setOutcomes(parsed.outcomes || []);
-        setFocus(parsed.focus || null);
-        setEvents(parsed.events || []);
-        setReport(parsed.report || null);
-        setMessages(parsed.messages || []);
-        setDayType(parsed.dayType || 'personal');
-        setCustomDirection(parsed.customDirection || '');
+        setState(parsed);
+        if (parsed?.selected_day_type) setDayType(parsed.selected_day_type);
+        if (parsed?.custom_context) setCustomDirection(parsed.custom_context);
       }
     } catch {
-      // ignore corrupted daily state
-    }
-    try {
-      const prefsRaw = localStorage.getItem('taskpilot-user-preferences');
-      const prefs = prefsRaw ? JSON.parse(prefsRaw) : null;
-      if (prefs?.primary_use_case?.includes('business')) setDayType('money');
-      else if (prefs?.primary_use_case?.includes('learning')) setDayType('learning');
-      else if (prefs?.primary_use_case?.includes('coding')) setDayType('build');
-    } catch {
-      // ignore preference parse errors
+      setState(buildInitialState(today));
     }
     void fetch('/api/health').then((res) => res.json()).then((health) => {
       setAiMode(health?.env?.hasOpenAIKey ? 'openai' : 'mock');
       setSyncLabel(health?.env?.supabaseEnabled ? 'Synced' : 'Local');
     }).catch(() => null);
-  }, [storageKey]);
+  }, [storageKey, today]);
 
   useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify({ outcomes, focus, events, report, messages, dayType, customDirection }));
-  }, [storageKey, outcomes, focus, events, report, messages, dayType, customDirection]);
+    localStorage.setItem(storageKey, JSON.stringify({ ...state, last_saved_at: nowIso() }));
+  }, [storageKey, state]);
 
   useEffect(() => {
-    if (!focus || focus.status !== 'active') return;
+    if (!state.active_focus_block || state.active_focus_block.status !== 'active') return;
     const timer = setInterval(() => {
-      const elapsed = Math.max(0, Math.floor((Date.now() - new Date(focus.started_at).getTime()) / 60000));
-      setFocusNow(elapsed);
-      setFocus((prev) => prev ? { ...prev, actual_minutes: elapsed, last_progress_at: new Date().toISOString() } : prev);
+      setState((prev) => {
+        if (!prev.active_focus_block || prev.active_focus_block.status !== 'active') return prev;
+        const elapsed = Math.max(0, Math.floor((Date.now() - new Date(prev.active_focus_block.started_at).getTime()) / 60000));
+        return {
+          ...prev,
+          active_focus_block: {
+            ...prev.active_focus_block,
+            actual_minutes: elapsed,
+            last_progress_at: nowIso()
+          }
+        };
+      });
     }, 15000);
     return () => clearInterval(timer);
-  }, [focus?.id, focus?.status, focus?.started_at]);
+  }, [state.active_focus_block?.id, state.active_focus_block?.status]);
 
-  function logEvent(type: DailyEvent['type'], content: string) {
-    const event = { id: crypto.randomUUID(), type, content, created_at: new Date().toISOString() };
-    setEvents((prev) => [event, ...prev].slice(0, 120));
+  useEffect(() => {
+    function onAddOutcome() {
+      addOutcome();
+    }
+    function onPlanToday() {
+      setShowPlanModal(true);
+    }
+    function onStartFocus() {
+      pickBestOutcome();
+    }
+    function onGenerateReport() {
+      generateReport();
+    }
+    window.addEventListener('daily-add-outcome', onAddOutcome as EventListener);
+    window.addEventListener('daily-plan-today', onPlanToday as EventListener);
+    window.addEventListener('daily-start-focus', onStartFocus as EventListener);
+    window.addEventListener('daily-generate-report', onGenerateReport as EventListener);
+    return () => {
+      window.removeEventListener('daily-add-outcome', onAddOutcome as EventListener);
+      window.removeEventListener('daily-plan-today', onPlanToday as EventListener);
+      window.removeEventListener('daily-start-focus', onStartFocus as EventListener);
+      window.removeEventListener('daily-generate-report', onGenerateReport as EventListener);
+    };
+  }, [state.outcomes.length, state.active_outcome_id]);
+
+  function updateState(mutator: (prev: DailyCommandState) => DailyCommandState) {
+    setState((prev) => ({ ...mutator(prev), last_saved_at: nowIso() }));
   }
 
-  function addOutcomeFromTemplate(title: string, idx: number) {
-    const now = new Date().toISOString();
-    const outcome: DailyOutcome = {
+  function logEvent(type: DailyEvent['type'], content: string) {
+    updateState((prev) => ({ ...prev, events: [{ id: crypto.randomUUID(), type, content, created_at: nowIso() }, ...prev.events].slice(0, 200) }));
+  }
+
+  function makeOutcome(title: string, idx: number): DailyOutcome {
+    const baseProof = 'One visible artifact proving progress';
+    const q = evaluateOutcomeQuality(title, baseProof);
+    const quality = Math.round((q.clarity + q.realism + q.proofability + q.daily_scope + q.value) / 5);
+    const valueScore = q.value;
+    const urgency: DailyOutcome['urgency'] = dayType === 'money' ? 'high' : 'medium';
+    const effort: DailyOutcome['effort'] = dayType === 'admin' ? 'low' : dayType === 'build' ? 'high' : 'medium';
+    const urgencyBonus = urgency === 'high' ? 2 : urgency === 'medium' ? 1 : 0;
+    const effortPenalty = effort === 'high' ? 2 : effort === 'medium' ? 1 : 0;
+    const leverage = Math.max(1, Math.min(10, Math.round((valueScore * 1.5) + urgencyBonus - effortPenalty)));
+    return {
       id: crypto.randomUUID(),
       title,
-      why_it_matters: 'This creates visible progress by end of day.',
+      why_it_matters: 'Creates visible progress by end of day.',
       category: dayType === 'money' ? 'money' : dayType === 'admin' ? 'admin' : dayType === 'learning' ? 'learning' : 'build',
       priority: Math.min(3, idx + 1) as 1 | 2 | 3,
       status: 'planned',
       estimated_minutes: 60,
       actual_minutes: 0,
-      proof_required: 'Proof of progress by day end',
+      proof_required: baseProof,
       proof_provided: '',
-      created_at: now,
-      updated_at: now,
+      first_action: 'Start a 5-minute first move.',
+      value_score: valueScore,
+      quality_score: quality,
+      leverage_score: leverage,
+      money_potential: dayType === 'money' ? 'high' : dayType === 'build' ? 'medium' : 'low',
+      urgency,
+      effort,
+      created_at: nowIso(),
+      updated_at: nowIso(),
       completed_at: null
     };
-    setOutcomes((prev) => [...prev, outcome].slice(0, 3));
-    logEvent('created_outcome', `Created outcome: ${title}`);
-    addRecentActivity({ type: 'daily_outcome_created', title: title, route: '/daily' });
   }
 
-  function startFocus(outcome: DailyOutcome, minutes = 25) {
-    const now = new Date().toISOString();
-    setFocus({
+  function addOutcome(title?: string) {
+    const seed = title || `Outcome ${state.outcomes.length + 1}`;
+    const outcome = makeOutcome(seed, state.outcomes.length);
+    updateState((prev) => ({ ...prev, outcomes: [...prev.outcomes, outcome].slice(0, 3) }));
+    logEvent('created_outcome', `Outcome created: ${seed}`);
+    addRecentActivity({ type: 'daily_outcome_created', title: seed, route: '/daily' });
+    pushToast('Outcome added.');
+  }
+
+  async function proposePlan() {
+    const prompt = `Plan top 3 outcomes for a ${dayType} day. Context: ${customDirection || 'none'}.`;
+    const res = await fetch('/api/daily/coach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: prompt, generateTop3: true, dayType, customDirection, outcomes: state.outcomes, activeFocus: state.active_focus_block, fullState: state })
+    });
+    const payload = await res.json();
+    const generated = Array.isArray(payload?.data?.generated_outcomes) ? payload.data.generated_outcomes : BASE_OUTCOME_LIBRARY[dayType];
+    setProposedOutcomes(generated.slice(0, 3).map((title: string, idx: number) => makeOutcome(title, idx)));
+    setShowPlanReview(true);
+    setShowPlanModal(false);
+  }
+
+  function acceptProposedOutcomes(selectedIds?: string[]) {
+    const chosen = selectedIds?.length ? proposedOutcomes.filter((item) => selectedIds.includes(item.id)) : proposedOutcomes;
+    updateState((prev) => ({
+      ...prev,
+      selected_day_type: dayType,
+      custom_context: customDirection,
+      outcomes: chosen.slice(0, 3).map((item, idx) => ({ ...item, priority: Math.min(3, idx + 1) as 1 | 2 | 3 }))
+    }));
+    logEvent('generated_top3', `Planned top 3 outcomes for ${dayType} day.`);
+    pushToast('Daily plan accepted.');
+    setShowPlanReview(false);
+  }
+
+  function pickBestOutcome() {
+    const candidate = [...state.outcomes]
+      .filter((o) => o.status !== 'done')
+      .sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0];
+    if (!candidate) return pushToast('No outcomes available yet.');
+    startFocus(candidate.id);
+  }
+
+  function startFocus(outcomeId: string) {
+    const outcome = state.outcomes.find((o) => o.id === outcomeId);
+    if (!outcome) return;
+    const block: FocusBlock = {
       id: crypto.randomUUID(),
       outcome_id: outcome.id,
       title: outcome.title,
       status: 'active',
-      started_at: now,
+      started_at: nowIso(),
       ended_at: null,
-      planned_minutes: minutes,
+      planned_minutes: 25,
       actual_minutes: 0,
-      current_action: `Start: ${outcome.title}`,
+      current_action: outcome.first_action || `Start: ${outcome.title}`,
       blocker: '',
       drift_score: 0,
-      last_progress_at: now
-    });
-    setOutcomes((prev) => prev.map((item) => (item.id === outcome.id ? { ...item, status: 'active', updated_at: now } : item)));
-    logEvent('started_focus', `Started focus on ${outcome.title}`);
-    addRecentActivity({ type: 'focus_started', title: `Focus: ${outcome.title}`, route: '/daily' });
+      last_progress_at: nowIso()
+    };
+    updateState((prev) => ({
+      ...prev,
+      status: 'focus',
+      active_outcome_id: outcome.id,
+      active_focus_block: block,
+      outcomes: prev.outcomes.map((o) => ({ ...o, status: o.id === outcome.id ? 'active' : o.status === 'active' ? 'selected' : o.status }))
+    }));
+    logEvent('started_focus', `Focus started: ${outcome.title}`);
+    addRecentActivity({ type: 'focus_started', title: `Focus started for ${outcome.title}`, route: '/daily' });
+    pushToast('Focus block started.');
   }
 
-  async function sendCoachMessage(prompt: string) {
-    const content = prompt || input;
-    if (!content.trim()) return;
+  function openEditOutcome(id: string) {
+    const outcome = state.outcomes.find((o) => o.id === id);
+    if (!outcome) return;
+    setEditingOutcomeId(id);
+    setEditingDraft(outcome);
+  }
+
+  function saveOutcomeEdit() {
+    if (!editingOutcomeId) return;
+    const quality = evaluateOutcomeQuality(String(editingDraft.title || ''), String(editingDraft.proof_required || ''));
+    const qualityScore = Math.round((quality.clarity + quality.realism + quality.proofability + quality.daily_scope + quality.value) / 5);
+    updateState((prev) => ({
+      ...prev,
+      outcomes: prev.outcomes.map((o) => o.id === editingOutcomeId ? { ...o, ...editingDraft, quality_score: qualityScore, updated_at: nowIso() } as DailyOutcome : o)
+    }));
+    setEditingOutcomeId(null);
+    setEditingDraft({});
+    logEvent('created_outcome', 'Outcome edited.');
+    pushToast('Outcome updated.');
+  }
+
+  function completeOutcome(id: string) {
+    const target = state.outcomes.find((o) => o.id === id);
+    if (!target) return;
+    if (!target.proof_provided.trim()) {
+      pushToast('Log proof before marking done.');
+      return;
+    }
+    updateState((prev) => ({
+      ...prev,
+      outcomes: prev.outcomes.map((o) => o.id === id ? { ...o, status: 'done', completed_at: nowIso(), updated_at: nowIso() } : o),
+      active_focus_block: prev.active_focus_block?.outcome_id === id ? { ...prev.active_focus_block, status: 'complete', ended_at: nowIso() } : prev.active_focus_block,
+      active_outcome_id: prev.active_outcome_id === id ? null : prev.active_outcome_id
+    }));
+    logEvent('completed_outcome', `Outcome completed: ${target.title}`);
+    addRecentActivity({ type: 'daily_outcome_completed', title: target.title, route: '/daily' });
+    pushToast('Outcome marked done.');
+  }
+
+  function openBlockedModal(id: string) {
+    setBlockerModalOutcomeId(id);
+    setBlockerNote('');
+  }
+
+  function saveBlockedOutcome() {
+    if (!blockerModalOutcomeId) return;
+    updateState((prev) => ({
+      ...prev,
+      status: 'blocked',
+      outcomes: prev.outcomes.map((o) => o.id === blockerModalOutcomeId ? { ...o, status: 'blocked', blocker_note: blockerNote, updated_at: nowIso() } : o),
+      active_focus_block: prev.active_focus_block?.outcome_id === blockerModalOutcomeId ? { ...prev.active_focus_block, status: 'blocked', blocker: blockerNote } : prev.active_focus_block
+    }));
+    logEvent('blocked', `Blocked: ${blockerNote || 'Outcome blocked.'}`);
+    setBlockerModalOutcomeId(null);
+    pushToast('Outcome blocked.');
+  }
+
+  function logProof(id: string, proof: string) {
+    updateState((prev) => ({
+      ...prev,
+      outcomes: prev.outcomes.map((o) => o.id === id ? { ...o, proof_provided: proof, updated_at: nowIso() } : o)
+    }));
+    logEvent('proof_added', 'Proof logged.');
+    pushToast('Proof logged.');
+  }
+
+  async function convertOutcomeToWorkflow(id: string) {
+    const outcome = state.outcomes.find((o) => o.id === id);
+    if (!outcome) return;
+    const res = await fetch('/api/workflows/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        goal: outcome.title,
+        category: outcome.category === 'money' ? 'business_sop' : outcome.category === 'build' ? 'coding' : 'productivity',
+        desired_outcome: outcome.why_it_matters,
+        steps_count: 7,
+        output_style: 'practical checklist'
+      })
+    });
+    const payload = await res.json();
+    const raw = payload?.workflow;
+    if (!raw) return pushToast('Could not convert outcome right now.');
+    const wf: Workflow = {
+      id: raw.id || raw.slug || outcome.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      workflow_name: raw.workflow_name || `${outcome.title} Workflow`,
+      category: raw.category || 'productivity',
+      difficulty: raw.difficulty || 'beginner',
+      estimated_time: raw.estimated_time || '60 minutes',
+      required_tools: raw.required_tools || [],
+      required_materials: raw.required_materials || [],
+      prerequisites: raw.prerequisites || [],
+      steps: raw.steps || [],
+      completion_criteria: raw.completion_criteria || outcome.title,
+      report_template: raw.report_template || { summary: 'Generated from daily outcome.', issues_found: [], fixes_made: [], recommendations: [] }
+    };
+    saveGeneratedWorkflow(wf);
+    addRecentActivity({ type: 'workflow_generated', title: `Converted outcome to workflow: ${wf.workflow_name}`, route: `/session/${wf.id}` });
+    logEvent('completed_action', 'Converted active outcome to workflow.');
+    pushToast('Workflow created from outcome.');
+    router.push(`/session/${wf.id}`);
+  }
+
+  async function sendCoachMessage(promptOverride?: string) {
+    const content = (promptOverride ?? input).trim();
+    if (!content) return;
     setInput('');
-    const userMsg: CoachMessage = { id: crypto.randomUUID(), role: 'user', content, created_at: new Date().toISOString() };
-    setMessages((prev) => [...prev, userMsg]);
-    logEvent('coach_message_sent', `Coach asked: ${content.slice(0, 40)}...`);
-    addRecentActivity({ type: 'coach_message_sent', title: 'Sent message to Daily Copilot', route: '/daily' });
+    const userMsg: DailyCoachMessage = { id: crypto.randomUUID(), role: 'user', content, created_at: nowIso() };
+    updateState((prev) => ({ ...prev, coach_messages: [...prev.coach_messages, userMsg].slice(-80) }));
+    logEvent('coach_message_sent', `Coach: ${content.slice(0, 60)}`);
     const res = await fetch('/api/daily/coach', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: content, outcomes, focus, events, report, dayType, customDirection })
+      body: JSON.stringify({
+        message: content,
+        dayType,
+        customDirection,
+        outcomes: state.outcomes,
+        focus: state.active_focus_block,
+        events: state.events,
+        report: state.report,
+        fullState: state
+      })
     });
     const payload = await res.json();
     const ai: DailyAIResponse = payload?.data;
-    setMessages((prev) => [...prev, {
+    const assistant: DailyCoachMessage = {
       id: crypto.randomUUID(),
       role: 'assistant',
-      content: ai?.direct_answer || 'Pick one high-leverage action and start now.',
-      created_at: new Date().toISOString(),
+      content: ai?.direct_answer || 'Pick one concrete next action and begin now.',
+      created_at: nowIso(),
       ai
-    }]);
-  }
-
-  async function planTodayWithAI() {
-    const prompt = `Plan my top 3 outcomes for today. Day type: ${dayType}. Context: ${customDirection || 'none'}.`;
-    const res = await fetch('/api/daily/coach', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: prompt, outcomes, focus, events, report, dayType, customDirection, generateTop3: true }) });
-    const payload = await res.json();
-    const generated = Array.isArray(payload?.data?.generated_outcomes) ? payload.data.generated_outcomes : OUTCOME_TEMPLATES[dayType];
-    setOutcomes([]);
-    generated.slice(0, 3).forEach((title: string, idx: number) => addOutcomeFromTemplate(title, idx));
-    logEvent('generated_top3', `Planned top 3 outcomes for a ${dayType} day.`);
-  }
-
-  function completeOutcome(outcomeId: string) {
-    const now = new Date().toISOString();
-    setOutcomes((prev) => prev.map((item) => (item.id === outcomeId ? { ...item, status: 'done', completed_at: now, updated_at: now } : item)));
-    logEvent('completed_outcome', 'Marked an outcome done.');
-    addRecentActivity({ type: 'daily_outcome_completed', title: 'Completed a daily outcome', route: '/daily' });
-  }
-
-  function markBlocked(outcomeId: string) {
-    setOutcomes((prev) => prev.map((item) => (item.id === outcomeId ? { ...item, status: 'blocked', updated_at: new Date().toISOString() } : item)));
-    logEvent('blocked', 'Marked outcome blocked.');
+    };
+    updateState((prev) => ({ ...prev, coach_messages: [...prev.coach_messages, assistant].slice(-80) }));
   }
 
   function generateReport() {
-    const completed = outcomes.filter((o) => o.status === 'done');
-    const blocked = outcomes.filter((o) => o.status === 'blocked');
-    const skipped = outcomes.filter((o) => o.status === 'skipped');
-    const unfinished = outcomes.filter((o) => o.status !== 'done').map((o) => o.title);
-    const totalFocusMinutes = focus?.actual_minutes || outcomes.reduce((sum, item) => sum + item.actual_minutes, 0);
-    const dailyReport: DailyReport = {
+    const completed = state.outcomes.filter((o) => o.status === 'done');
+    const blocked = state.outcomes.filter((o) => o.status === 'blocked');
+    const skipped = state.outcomes.filter((o) => o.status === 'skipped');
+    const unfinished = state.outcomes.filter((o) => o.status !== 'done');
+    const totalFocusMinutes = state.active_focus_block?.actual_minutes || state.outcomes.reduce((sum, o) => sum + o.actual_minutes, 0);
+    const report: DailyReport = {
       id: crypto.randomUUID(),
-      date: today,
+      date: state.date,
       completed_outcomes: completed,
       blocked_outcomes: blocked,
       skipped_outcomes: skipped,
       total_focus_minutes: totalFocusMinutes,
-      summary: `Completed ${completed.length}/${outcomes.length} planned outcomes.`,
+      summary: `Completed ${completed.length}/${state.outcomes.length} outcomes with ${totalFocusMinutes} focus minutes.`,
       wins: completed.map((o) => o.title),
-      leaks: blocked.map((o) => o.title),
-      tomorrow_first_action: unfinished[0] ? `Start with: ${unfinished[0]}` : 'Pick one high-leverage outcome before noon.',
+      leaks: blocked.map((o) => o.blocker_note || o.title),
+      tomorrow_first_action: unfinished[0] ? `Start with: ${unfinished[0].title}` : 'Start with highest-leverage new outcome.',
       money_score: Math.min(10, completed.filter((o) => o.category === 'money').length * 4 + 2),
       execution_score: Math.min(10, completed.length * 3 + (totalFocusMinutes >= 50 ? 2 : 0)),
-      created_at: new Date().toISOString()
+      created_at: nowIso()
     };
-    setReport(dailyReport);
-    logEvent('report_generated', 'Generated end-of-day report.');
-    addRecentActivity({ type: 'daily_report_generated', title: 'Generated end-of-day report', route: '/daily' });
+    updateState((prev) => ({ ...prev, status: 'complete', report }));
+    logEvent('report_generated', 'Daily report generated.');
+    addRecentActivity({ type: 'daily_report_generated', title: 'Daily report generated', route: '/daily' });
+    pushToast('Day closed with report.');
   }
 
-  const highestLeverage = outcomes.find((o) => o.status === 'active') || outcomes.find((o) => o.status === 'planned');
+  function carryForward() {
+    const nextDay = new Date();
+    nextDay.setDate(nextDay.getDate() + 1);
+    const nextKey = getDailyStorageKey(nextDay.toISOString().slice(0, 10));
+    const carry = state.outcomes.filter((o) => o.status !== 'done').map((o, idx) => ({
+      ...o,
+      id: crypto.randomUUID(),
+      status: 'planned' as const,
+      completed_at: null,
+      priority: Math.min(3, idx + 1) as 1 | 2 | 3,
+      updated_at: nowIso()
+    }));
+    const existingRaw = localStorage.getItem(nextKey);
+    const existing = existingRaw ? JSON.parse(existingRaw) : buildInitialState(nextDay.toISOString().slice(0, 10));
+    localStorage.setItem(nextKey, JSON.stringify({ ...existing, outcomes: carry }));
+    logEvent('carry_over', `Carried ${carry.length} outcomes to tomorrow.`);
+    pushToast('Unfinished outcomes carried to tomorrow.');
+  }
+
+  const activeFocus = state.active_focus_block;
+  const recommendedOutcome = [...state.outcomes]
+    .filter((o) => o.status !== 'done')
+    .sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0];
+  const shownEvents = showAllEvents ? state.events : state.events.slice(0, 10);
+
+  function safeAction(label: string, handler?: () => void) {
+    if (!handler) {
+      console.warn(`[TaskPilot][Daily] Button "${label}" missing handler.`);
+      return () => pushToast(`${label} coming soon.`);
+    }
+    return handler;
+  }
 
   return (
     <main>
@@ -224,11 +488,12 @@ export default function DailyPage() {
           <div>
             <p className="badge mb-2">Today&apos;s execution cockpit</p>
             <h1 className="text-3xl font-black">Daily Command Center</h1>
-            <p className="mt-1 text-sm text-slate-400">{today} · Status: {dailyState}</p>
+            <p className="mt-1 text-sm text-slate-400">{state.date} · Status: {state.status}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="badge">AI: {aiMode === 'openai' ? 'OpenAI' : 'Mock'}</span>
             <span className="badge">Sync: {syncLabel}</span>
+            <button className="btn-ghost btn-sm" onClick={safeAction('Plan today', () => setShowPlanModal(true))}>Plan today</button>
           </div>
         </div>
 
@@ -239,108 +504,126 @@ export default function DailyPage() {
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr_1fr]">
-          <div className={`${mobileTab === 'outcomes' ? 'block' : 'hidden'} space-y-5 lg:block`}>
+          <div className={`${mobileTab === 'outcomes' ? 'block' : 'hidden'} lg:block`}>
             <div className="card p-5">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Today&apos;s top 3 outcomes</h2>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Today&apos;s outcomes</h2>
                 <div className="flex gap-2">
-                  <button className="btn-secondary btn-sm" onClick={() => setShowPlanModal(true)}>Plan today with AI</button>
-                  <button className="btn-ghost btn-sm" onClick={() => addOutcomeFromTemplate(`Outcome ${outcomes.length + 1}`, outcomes.length)}>Add outcome</button>
+                  <button className="btn-secondary btn-sm" onClick={safeAction('Plan today', () => setShowPlanModal(true))}>Plan today</button>
+                  <button className="btn-ghost btn-sm" onClick={safeAction('Add outcome', () => addOutcome())}>Add outcome</button>
                 </div>
               </div>
-              {!outcomes.length ? (
+              {!state.outcomes.length ? (
                 <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
                   <p className="font-semibold text-white">Start by choosing today&apos;s top 3 outcomes.</p>
-                  <p className="mt-1 text-sm text-slate-400">Pick outcomes, not chores. A good outcome has a visible result by end of day.</p>
+                  <p className="mt-1 text-sm text-slate-400">Pick outcomes, not chores. A strong outcome has visible proof by end of day.</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button className="btn-secondary btn-sm" onClick={() => { setDayType('build'); addOutcomeFromTemplate('Ship one useful improvement', 0); }}>Build something</button>
-                    <button className="btn-secondary btn-sm" onClick={() => { setDayType('money'); addOutcomeFromTemplate('Send 10 sales or beta outreach messages', 0); }}>Make money</button>
-                    <button className="btn-secondary btn-sm" onClick={() => addOutcomeFromTemplate('Fix the biggest blocker in my current project', 0)}>Clear a blocker</button>
-                    <button className="btn-ghost btn-sm" onClick={() => setShowPlanModal(true)}>Start from scratch</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Build something', () => { setDayType('build'); addOutcome('Ship one useful improvement'); })}>Build something</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Make money', () => { setDayType('money'); addOutcome('Send 10 sales or beta outreach messages'); })}>Make money</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Clear blocker', () => addOutcome('Fix the biggest blocker in my current project'))}>Clear a blocker</button>
+                    <button className="btn-ghost btn-sm" onClick={safeAction('Start from scratch', () => setShowPlanModal(true))}>Start from scratch</button>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {outcomes.map((outcome) => (
-                    <div key={outcome.id} className={`rounded-xl border p-3 ${outcome.status === 'done' ? 'border-emerald-500/40 bg-emerald-400/10' : outcome.status === 'blocked' ? 'border-amber-500/50 bg-amber-500/10' : 'border-slate-700 bg-slate-950/40'}`}>
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="font-semibold text-white">#{outcome.priority} {outcome.title}</p>
-                        <span className="badge">{outcome.category}</span>
+                  {state.outcomes.map((outcome) => {
+                    const quality = qualityLabel(outcome.quality_score || 0);
+                    const isActive = state.active_outcome_id === outcome.id || outcome.status === 'active';
+                    return (
+                      <div key={outcome.id} className={`rounded-xl border p-3 ${isActive ? 'border-amber-400 bg-amber-400/10' : outcome.status === 'done' ? 'border-emerald-500/40 bg-emerald-400/10' : outcome.status === 'blocked' ? 'border-amber-500/60 bg-amber-500/10' : 'border-slate-700 bg-slate-950/40'}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-semibold text-white">#{outcome.priority} {outcome.title}</p>
+                          <div className="flex gap-1">
+                            <span className="badge">{outcome.category}</span>
+                            {!!outcome.leverage_score && <span className="badge">Leverage {outcome.leverage_score}</span>}
+                            {outcome.money_potential && outcome.money_potential !== 'none' && <span className="badge">Money {outcome.money_potential}</span>}
+                          </div>
+                        </div>
+                        <p className="text-sm text-slate-400">{outcome.why_it_matters}</p>
+                        <p className="text-xs text-slate-500">Status: {isActive ? 'active' : outcome.status} · Est {outcome.estimated_minutes}m · Actual {outcome.actual_minutes}m</p>
+                        <p className="text-xs text-slate-500">Proof: {outcome.proof_required} {outcome.proof_provided ? `· Logged: ${outcome.proof_provided}` : ''}</p>
+                        <p className="text-xs text-slate-500">Quality: {quality}</p>
+                        {outcome.status === 'blocked' && <p className="mt-1 text-xs text-amber-200">Blocked: {outcome.blocker_note || 'Missing blocker detail.'}</p>}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {outcome.status !== 'done' && <button className="btn-primary btn-sm" onClick={safeAction('Focus', () => startFocus(outcome.id))}>Focus</button>}
+                          {outcome.status !== 'done' && <button className="btn-secondary btn-sm" onClick={safeAction('Done', () => completeOutcome(outcome.id))}>Done</button>}
+                          {outcome.status !== 'done' && <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(outcome.id))}>Blocked</button>}
+                          <button className="btn-ghost btn-sm" onClick={safeAction('Log proof', () => logProof(outcome.id, prompt('Proof note') || ''))}>Log proof</button>
+                          <button className="btn-ghost btn-sm" onClick={safeAction('Edit', () => openEditOutcome(outcome.id))}>Edit</button>
+                          <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => void convertOutcomeToWorkflow(outcome.id))}>Turn into workflow</button>
+                        </div>
+                        {outcome.completed_at && <p className="mt-1 text-xs text-emerald-300">Completed {new Date(outcome.completed_at).toLocaleTimeString()}</p>}
                       </div>
-                      <p className="text-sm text-slate-400">{outcome.why_it_matters}</p>
-                      <p className="mt-1 text-xs text-slate-500">Status: {outcome.status} · Est {outcome.estimated_minutes}m · Actual {outcome.actual_minutes}m</p>
-                      <p className="text-xs text-slate-500">Proof required: {outcome.proof_required}</p>
-                      {outcome.status === 'blocked' && <p className="mt-1 text-xs text-amber-200">Blocked. Resolve blocker or pick smallest unblock step.</p>}
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {outcome.status !== 'done' && <button className="btn-primary btn-sm" onClick={() => startFocus(outcome)}>Focus</button>}
-                        {outcome.status !== 'done' && <button className="btn-secondary btn-sm" onClick={() => completeOutcome(outcome.id)}>Done</button>}
-                        {outcome.status !== 'done' && <button className="btn-ghost btn-sm" onClick={() => markBlocked(outcome.id)}>Blocked</button>}
-                        <button className="btn-ghost btn-sm" onClick={() => { setEditingOutcomeId(outcome.id); setEditingTitle(outcome.title); setEditingWhy(outcome.why_it_matters); }}>Edit</button>
-                      </div>
-                      {outcome.completed_at && <p className="mt-1 text-xs text-emerald-300">Completed {new Date(outcome.completed_at).toLocaleTimeString()}</p>}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
           </div>
 
-          <div className={`${mobileTab === 'focus' ? 'block' : 'hidden'} space-y-5 lg:block`}>
+          <div className={`${mobileTab === 'focus' ? 'block' : 'hidden'} lg:block`}>
             <div className="card p-5">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Active Focus</h2>
-              {!focus || focus.status !== 'active' ? (
+              {!activeFocus || activeFocus.status !== 'active' ? (
                 <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
                   <p className="font-semibold text-white">No focus block running</p>
-                  <p className="mt-1 text-sm text-slate-400">Start a focus block from one of today&apos;s outcomes.</p>
+                  <p className="mt-1 text-sm text-slate-400">Pick one outcome to work now.</p>
+                  <p className="mt-2 text-xs text-slate-500">Recommended: {recommendedOutcome?.title || 'No recommended outcome yet.'}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button className="btn-secondary btn-sm" onClick={() => highestLeverage && startFocus(highestLeverage, 25)}>Pick best outcome</button>
-                    <button className="btn-primary btn-sm" onClick={() => highestLeverage && startFocus(highestLeverage, 25)}>Start focus block</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Pick best next move', pickBestOutcome)}>Pick best next move</button>
+                    <button className="btn-primary btn-sm" onClick={safeAction('Start focus block', () => recommendedOutcome && startFocus(recommendedOutcome.id))}>Start focus block</button>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-2 text-sm text-slate-300">
-                  <p><span className="text-slate-500">Outcome:</span> {focus.title}</p>
-                  <p><span className="text-slate-500">Current action:</span> {focus.current_action}</p>
-                  <p><span className="text-slate-500">Elapsed:</span> {focusNow}m / {focus.planned_minutes}m</p>
-                  <p><span className="text-slate-500">Proof needed:</span> {outcomes.find((o) => o.id === focus.outcome_id)?.proof_required || 'Visible result'}</p>
-                  <p><span className="text-slate-500">Drift score:</span> {focus.drift_score}</p>
-                  <p><span className="text-slate-500">Last progress:</span> {new Date(focus.last_progress_at).toLocaleTimeString()}</p>
+                  <p><span className="text-slate-500">Outcome:</span> {activeFocus.title}</p>
+                  <p><span className="text-slate-500">Current action:</span> {activeFocus.current_action}</p>
+                  <p><span className="text-slate-500">Proof needed:</span> {state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.proof_required || 'Visible progress note'}</p>
+                  <p><span className="text-slate-500">Elapsed:</span> {activeFocus.actual_minutes}m / {activeFocus.planned_minutes}m</p>
+                  <p><span className="text-slate-500">Drift:</span> {activeFocus.drift_score > 5 ? 'High' : 'Stable'}</p>
+                  <p><span className="text-slate-500">Checkpoint:</span> {new Date(activeFocus.last_progress_at).toLocaleTimeString()}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button className="btn-secondary btn-sm" onClick={() => { setFocus((prev) => prev ? { ...prev, status: 'complete', ended_at: new Date().toISOString() } : prev); logEvent('completed_action', 'Completed focus action.'); }}>Complete action</button>
-                    <button className="btn-secondary btn-sm" onClick={() => { const now = new Date().toISOString(); setOutcomes((prev) => prev.map((o) => o.id === focus.outcome_id ? { ...o, proof_provided: proofInput || 'Proof added', updated_at: now } : o)); setProofInput(''); logEvent('proof_added', 'Added proof to active focus.'); }}>Add proof</button>
-                    <button className="btn-ghost btn-sm" onClick={() => { setFocus((prev) => prev ? { ...prev, status: 'blocked', blocker: 'Needs help' } : prev); logEvent('blocked', 'Focus block marked blocked.'); }}>I&apos;m blocked</button>
-                    <button className="btn-ghost btn-sm" onClick={() => setFocus((prev) => prev ? { ...prev, status: 'paused' } : prev)}>Pause</button>
-                    <button className="btn-ghost btn-sm" onClick={() => setFocus(null)}>End focus</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Complete action', () => { logEvent('completed_action', 'Focus action completed.'); pushToast('Focus action logged.'); })}>Complete action</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => logProof(activeFocus.outcome_id, prompt('Proof note') || 'Proof logged'))}>Log proof</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(activeFocus.outcome_id))}>Blocked</button>
+                    <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
+                    <button className="btn-ghost btn-sm" onClick={safeAction('End focus', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'complete', ended_at: nowIso() } : null, status: 'planning', active_outcome_id: null })); logEvent('completed_action', 'Focus ended.'); })}>End focus</button>
+                    <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => void convertOutcomeToWorkflow(activeFocus.outcome_id))}>Turn into workflow</button>
                   </div>
-                  <input className="input mt-2" placeholder="Paste quick proof note..." value={proofInput} onChange={(e) => setProofInput(e.target.value)} />
                 </div>
               )}
             </div>
           </div>
 
-          <div className={`${mobileTab === 'coach' ? 'block' : 'hidden'} space-y-5 lg:block`}>
+          <div className={`${mobileTab === 'coach' ? 'block' : 'hidden'} lg:block`}>
             <div className="card flex h-[520px] sm:h-[620px] flex-col p-5">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Daily Copilot</h2>
               <div className="mb-3 flex flex-wrap gap-2">
-                <button className="btn-secondary btn-sm" onClick={() => void sendCoachMessage('Based on today outcomes, choose the highest leverage outcome to work on first. Explain why, then give one next action under 5 minutes.')}>Pick highest leverage</button>
-                <button className="btn-ghost btn-sm" onClick={() => void sendCoachMessage('Reduce the active outcome to one tiny action that takes under 5 minutes.')}>Reduce to 5 minutes</button>
-                <button className="btn-ghost btn-sm" onClick={() => void sendCoachMessage('I am blocked. Ask me for exact blocker details and give the smallest unblock step.')}>I&apos;m blocked</button>
-                <button className="btn-ghost btn-sm" onClick={() => void sendCoachMessage('Find money actions from today outcomes and suggest one immediate action.')}>Find money actions</button>
-                <button className="btn-secondary btn-sm" onClick={generateReport}>End-of-day report</button>
+                <button className="btn-secondary btn-sm" onClick={safeAction('Pick best next move', () => void sendCoachMessage('Based on daily state, pick best next move and why.'))}>Pick best next move</button>
+                <button className="btn-ghost btn-sm" onClick={safeAction('Make it tiny', () => void sendCoachMessage('Make the active outcome tiny: one 5-minute action.'))}>Make it tiny</button>
+                <button className="btn-ghost btn-sm" onClick={safeAction('Find money move', () => void sendCoachMessage('Find the best money move from current outcomes and give one immediate action.'))}>Find money move</button>
+                <button className="btn-secondary btn-sm" onClick={safeAction('Close the day', generateReport)}>Close the day</button>
               </div>
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/50 p-3">
-                {messages.map((m) => (
+                {state.coach_messages.map((m) => (
                   <div key={m.id} className={`rounded-xl p-2 text-sm ${m.role === 'assistant' ? 'bg-slate-800/80 text-slate-100' : 'bg-amber-400/10 text-amber-100'}`}>
                     <p className="text-xs uppercase tracking-widest text-slate-500">{m.role}</p>
                     <p>{m.content}</p>
-                    {m.ai && <p className="mt-1 text-xs text-slate-400">Next: {m.ai.next_action} · Focus: {m.ai.focus_minutes ?? m.ai.suggested_focus_minutes}m</p>}
+                    {m.ai && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <span className="text-xs text-slate-400">Next: {m.ai.next_action}</span>
+                        {m.ai.recommended_outcome_id && <button className="btn-ghost btn-sm" onClick={safeAction('Start recommended focus', () => startFocus(m.ai!.recommended_outcome_id!))}>Start recommended focus</button>}
+                        {state.active_outcome_id && <button className="btn-ghost btn-sm" onClick={safeAction('Mark active done', () => completeOutcome(state.active_outcome_id!))}>Mark active done</button>}
+                        {state.active_outcome_id && <button className="btn-ghost btn-sm" onClick={safeAction('Create workflow from this', () => void convertOutcomeToWorkflow(state.active_outcome_id!))}>Create workflow from this</button>}
+                      </div>
+                    )}
                   </div>
                 ))}
-                {!messages.length && <p className="text-sm text-slate-500">No coach messages yet. Ask what to do first.</p>}
+                {!state.coach_messages.length && <p className="text-sm text-slate-500">No coach messages yet. Ask what to do first.</p>}
               </div>
               <div className="mt-3 flex gap-2">
-                <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask for coaching..." onKeyDown={(e) => e.key === 'Enter' && void sendCoachMessage('')} />
-                <button className="btn-primary" onClick={() => void sendCoachMessage('')}>Send</button>
+                <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask for coaching..." onKeyDown={(e) => e.key === 'Enter' && void sendCoachMessage()} />
+                <button className="btn-primary" onClick={safeAction('Send coach message', () => void sendCoachMessage())}>Send</button>
               </div>
             </div>
           </div>
@@ -350,51 +633,47 @@ export default function DailyPage() {
           <div className="card p-5">
             <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Progress Timeline</h2>
             <div className="space-y-1 text-sm text-slate-300">
-              {events.map((event) => <p key={event.id}>{new Date(event.created_at).toLocaleTimeString()} · [{event.type}] {event.content}</p>)}
-              {!events.length && <p className="text-slate-500">No progress logged yet. Start a focus block or mark an outcome complete.</p>}
+              {shownEvents.map((event) => (
+                <p key={event.id}>
+                  {new Date(event.created_at).toLocaleTimeString()} · {event.type === 'created_outcome' ? 'Outcome created' : event.type === 'started_focus' ? 'Focus started' : event.type === 'proof_added' ? 'Proof logged' : event.type === 'completed_outcome' ? 'Completed' : event.type === 'report_generated' ? 'Report generated' : event.type === 'blocked' ? 'Blocked' : 'Progress logged'} · {event.content}
+                </p>
+              ))}
+              {!state.events.length && <p className="text-slate-500">No progress logged yet. Start a focus block or mark an outcome complete.</p>}
             </div>
+            {state.events.length > 10 && <button className="btn-ghost btn-sm mt-2" onClick={() => setShowAllEvents((prev) => !prev)}>{showAllEvents ? 'View latest 10' : 'View all'}</button>}
           </div>
         </div>
 
-        {(report || mobileTab === 'report') && (
-          <div className={`${mobileTab === 'report' ? 'block' : 'hidden'} mt-5 lg:block`}>
-            <div className="card p-5">
-              <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">End-of-Day Report</h2>
-              {report ? (
-                <>
-                  <p className="text-sm text-slate-300"><span className="text-slate-500">Summary:</span> {report.summary}</p>
-                  <p className="text-sm text-slate-300"><span className="text-slate-500">Completed outcomes:</span> {report.completed_outcomes.map((o) => o.title).join(', ') || 'none'}</p>
-                  <p className="text-sm text-slate-300"><span className="text-slate-500">Blocked outcomes:</span> {report.blocked_outcomes.map((o) => o.title).join(', ') || 'none'}</p>
-                  <p className="text-sm text-slate-300"><span className="text-slate-500">Focus minutes:</span> {report.total_focus_minutes}</p>
-                  <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest win:</span> {report.wins[0] || 'n/a'}</p>
-                  <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest leak:</span> {report.leaks[0] || 'n/a'}</p>
-                  <p className="text-sm text-slate-300"><span className="text-slate-500">Money score:</span> {report.money_score}/10</p>
-                  <p className="text-sm text-slate-300"><span className="text-slate-500">Execution score:</span> {report.execution_score}/10</p>
-                  <p className="text-sm text-slate-300"><span className="text-slate-500">Tomorrow first action:</span> {report.tomorrow_first_action}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(JSON.stringify(report, null, 2))}>Copy report</button>
-                    <button className="btn-secondary btn-sm" onClick={() => {
-                      const nextDay = new Date();
-                      nextDay.setDate(nextDay.getDate() + 1);
-                      const nextKey = getDailyStorageKey(nextDay.toISOString().slice(0, 10));
-                      const carry = outcomes.filter((o) => o.status !== 'done').map((o, idx) => ({ ...o, id: crypto.randomUUID(), priority: Math.min(3, idx + 1) as 1 | 2 | 3, status: 'planned', completed_at: null, updated_at: new Date().toISOString() }));
-                      const existingRaw = localStorage.getItem(nextKey);
-                      const existing = existingRaw ? JSON.parse(existingRaw) : {};
-                      localStorage.setItem(nextKey, JSON.stringify({ ...existing, outcomes: carry }));
-                      logEvent('carry_over', `Carried ${carry.length} unfinished outcomes to tomorrow.`);
-                    }}>Carry unfinished to tomorrow</button>
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
-                  <p className="font-semibold text-white">No report yet</p>
-                  <p className="mt-1 text-sm text-slate-400">Generate your end-of-day report after focus sessions to capture wins and leaks.</p>
-                  <button className="btn-primary btn-sm mt-3" onClick={generateReport}>End-of-day report</button>
+        <div className={`${mobileTab === 'report' ? 'block' : 'hidden'} mt-5 lg:block`}>
+          <div className="card p-5">
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Close the day</h2>
+            {state.report ? (
+              <>
+                <p className="text-sm text-slate-300"><span className="text-slate-500">Summary:</span> {state.report.summary}</p>
+                <p className="text-sm text-slate-300"><span className="text-slate-500">Completed:</span> {state.report.completed_outcomes.map((o) => o.title).join(', ') || 'none'}</p>
+                <p className="text-sm text-slate-300"><span className="text-slate-500">Blocked:</span> {state.report.blocked_outcomes.map((o) => o.title).join(', ') || 'none'}</p>
+                <p className="text-sm text-slate-300"><span className="text-slate-500">Focus minutes:</span> {state.report.total_focus_minutes}</p>
+                <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest win:</span> {state.report.wins[0] || 'n/a'}</p>
+                <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest leak:</span> {state.report.leaks[0] || 'n/a'}</p>
+                <p className="text-sm text-slate-300"><span className="text-slate-500">Execution score:</span> {state.report.execution_score}/10</p>
+                <p className="text-sm text-slate-300"><span className="text-slate-500">Money score:</span> {state.report.money_score}/10</p>
+                <p className="text-sm text-slate-300"><span className="text-slate-500">Tomorrow first action:</span> {state.report.tomorrow_first_action}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="btn-secondary btn-sm" onClick={safeAction('Copy report', () => navigator.clipboard.writeText(JSON.stringify(state.report, null, 2)))}>Copy report</button>
+                  <button className="btn-secondary btn-sm" onClick={safeAction('Carry unfinished to tomorrow', carryForward)}>Carry unfinished to tomorrow</button>
+                  <button className="btn-ghost btn-sm" onClick={safeAction('Start tomorrow from this', carryForward)}>Start tomorrow from this</button>
+                  <button className="btn-ghost btn-sm" onClick={safeAction('Save report', () => pushToast('Report saved locally.'))}>Save report</button>
                 </div>
-              )}
-            </div>
+              </>
+            ) : (
+              <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
+                <p className="font-semibold text-white">No report yet</p>
+                <p className="mt-1 text-sm text-slate-400">Close your day with wins, leaks, carry-forward outcomes, and next action.</p>
+                <button className="btn-primary btn-sm mt-3" onClick={safeAction('Close the day', generateReport)}>Close the day</button>
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         {showPlanModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowPlanModal(false)}>
@@ -407,8 +686,31 @@ export default function DailyPage() {
               </div>
               <textarea className="input mt-3 min-h-24" value={customDirection} onChange={(e) => setCustomDirection(e.target.value)} placeholder="What is on your mind today?" />
               <div className="mt-3 flex gap-2">
-                <button className="btn-primary" onClick={() => { setShowPlanModal(false); void planTodayWithAI(); }}>Plan today with AI</button>
+                <button className="btn-primary" onClick={safeAction('Plan today', () => void proposePlan())}>Plan today</button>
                 <button className="btn-ghost" onClick={() => setShowPlanModal(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showPlanReview && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowPlanReview(false)}>
+            <div className="card w-full max-w-3xl p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">Review proposed top 3</h2>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                {proposedOutcomes.map((outcome) => (
+                  <div key={outcome.id} className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
+                    <p className="font-semibold">{outcome.title}</p>
+                    <p className="text-xs text-slate-500">Proof: {outcome.proof_required}</p>
+                    <p className="text-xs text-slate-500">First action: {outcome.first_action}</p>
+                    <p className="text-xs text-slate-500">Est: {outcome.estimated_minutes}m · Quality: {outcome.quality_score}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="btn-primary" onClick={safeAction('Accept all', () => acceptProposedOutcomes())}>Accept all</button>
+                <button className="btn-secondary" onClick={safeAction('Regenerate', () => void proposePlan())}>Regenerate</button>
+                <button className="btn-ghost" onClick={() => setShowPlanReview(false)}>Cancel</button>
               </div>
             </div>
           </div>
@@ -418,14 +720,25 @@ export default function DailyPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setEditingOutcomeId(null)}>
             <div className="card w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>
               <h2 className="text-xl font-black">Edit outcome</h2>
-              <input className="input mt-3" value={editingTitle} onChange={(e) => setEditingTitle(e.target.value)} />
-              <textarea className="input mt-2 min-h-20" value={editingWhy} onChange={(e) => setEditingWhy(e.target.value)} />
+              <input className="input mt-3" value={editingDraft.title || ''} onChange={(e) => setEditingDraft((prev) => ({ ...prev, title: e.target.value }))} placeholder="Title" />
+              <textarea className="input mt-2 min-h-20" value={editingDraft.why_it_matters || ''} onChange={(e) => setEditingDraft((prev) => ({ ...prev, why_it_matters: e.target.value }))} placeholder="Why it matters" />
+              <input className="input mt-2" value={editingDraft.proof_required || ''} onChange={(e) => setEditingDraft((prev) => ({ ...prev, proof_required: e.target.value }))} placeholder="Proof required" />
               <div className="mt-3 flex gap-2">
-                <button className="btn-primary" onClick={() => {
-                  setOutcomes((prev) => prev.map((o) => o.id === editingOutcomeId ? { ...o, title: editingTitle, why_it_matters: editingWhy, updated_at: new Date().toISOString() } : o));
-                  setEditingOutcomeId(null);
-                }}>Save</button>
+                <button className="btn-primary" onClick={safeAction('Save edit', saveOutcomeEdit)}>Save</button>
                 <button className="btn-ghost" onClick={() => setEditingOutcomeId(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {blockerModalOutcomeId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setBlockerModalOutcomeId(null)}>
+            <div className="card w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">What exactly is blocking this?</h2>
+              <textarea className="input mt-3 min-h-24" value={blockerNote} onChange={(e) => setBlockerNote(e.target.value)} />
+              <div className="mt-3 flex gap-2">
+                <button className="btn-primary" onClick={safeAction('Save blocker', saveBlockedOutcome)}>Save blocker</button>
+                <button className="btn-ghost" onClick={() => setBlockerModalOutcomeId(null)}>Cancel</button>
               </div>
             </div>
           </div>

@@ -21,6 +21,9 @@ export default function DashboardPage() {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [showTools, setShowTools] = useState(false);
   const [previewSession, setPreviewSession] = useState<any | null>(null);
+  const [streak, setStreak] = useState(0);
+  const [weeklyOutcomes, setWeeklyOutcomes] = useState(0);
+  const [weeklyFocusMinutes, setWeeklyFocusMinutes] = useState(0);
 
   useEffect(() => {
     void fetch('/api/auth/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => null);
@@ -54,6 +57,20 @@ export default function DashboardPage() {
       setFeedbackCount(0);
     }
     setOnboardingComplete(localStorage.getItem('taskpilot-onboarding-complete') === 'true');
+    try {
+      const reports = Object.keys(localStorage)
+        .filter((key) => key.includes('taskpilot-daily-'))
+        .map((key) => {
+          try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return null; }
+        })
+        .filter(Boolean);
+      const withReports = reports.filter((item: any) => item?.report);
+      setStreak(withReports.length);
+      setWeeklyOutcomes(withReports.reduce((sum: number, item: any) => sum + (item?.report?.completed_outcomes?.length || 0), 0));
+      setWeeklyFocusMinutes(withReports.reduce((sum: number, item: any) => sum + (item?.report?.total_focus_minutes || 0), 0));
+    } catch {
+      setStreak(0);
+    }
   }, []);
 
   const latestSession = savedSessions[0];
@@ -76,17 +93,24 @@ export default function DashboardPage() {
       ? { title: 'Continue your active session', reason: `Pick up where you left off on ${latestSession.workflow_id || 'your workflow'}.`, href: `/session/${latestSession.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(latestSession.id)}`, cta: 'Continue session' }
       : { title: 'Plan your day in Daily Mode', reason: 'Define top outcomes before diving into tasks.', href: '/daily', cta: 'Open Daily Mode' };
 
-  const tools = [
-    { href: '/settings/setup', title: 'Setup checklist', desc: 'Validate environment and schema' },
-    { href: '/settings/deploy', title: 'Deployment readiness', desc: 'Check production configuration' },
-    { href: '/settings/robot', title: 'Robot API', desc: 'Test robot endpoints and heartbeat' },
-    { href: '/sessions', title: 'Saved sessions', desc: 'Resume previous workflow runs' },
-    { href: '/workflows/saved', title: 'Workflow library', desc: 'Browse and pin workflows' },
-    { href: '/demo', title: 'Demo mode', desc: 'Guided beta demo surface' },
-    { href: '/settings/mobile', title: 'Mobile/PWA', desc: 'Install and test phone experience' },
-    { href: '/feedback', title: 'Feedback', desc: 'Track product issues and suggestions' },
-    { href: '/settings/auth-debug', title: 'Auth debug', desc: 'Inspect client/server auth state' }
-  ];
+  const tools = {
+    Setup: [
+      { href: '/settings/setup', title: 'Setup Checklist', desc: 'Validate environment and schema' },
+      { href: '/settings/deploy', title: 'Deployment', desc: 'Check production configuration' },
+      { href: '/settings/mobile', title: 'Mobile/PWA', desc: 'Install and test phone experience' },
+      { href: '/settings/auth-debug', title: 'Auth Debug', desc: 'Inspect client/server auth state' }
+    ],
+    Work: [
+      { href: '/workflows/saved', title: 'Workflow Library', desc: 'Browse and pin workflows' },
+      { href: '/sessions', title: 'Saved Sessions', desc: 'Resume previous workflow runs' },
+      { href: '/demo', title: 'Demo Mode', desc: 'Guided beta demo surface' },
+      { href: '/feedback', title: 'Feedback', desc: 'Track product issues and suggestions' }
+    ],
+    Robot: [
+      { href: '/settings/robot', title: 'Robot API', desc: 'Test robot endpoints and heartbeat' },
+      { href: '/settings/setup#robot', title: 'Robot Readiness', desc: 'Check readiness requirements' }
+    ]
+  };
 
   return (
     <main>
@@ -191,6 +215,24 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        <div className="mb-7 grid gap-4 md:grid-cols-3">
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Execution streak</p>
+            <p className="text-3xl font-black">{streak}</p>
+            <p className="text-xs text-slate-500">Days with completed close-the-day report.</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Completed outcomes this week</p>
+            <p className="text-3xl font-black">{weeklyOutcomes}</p>
+            <p className="text-xs text-slate-500">Proof-backed outcomes completed.</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Focus minutes this week</p>
+            <p className="text-3xl font-black">{weeklyFocusMinutes}</p>
+            <p className="text-xs text-slate-500">Time invested in deliberate execution blocks.</p>
+          </div>
+        </div>
+
         <h2 className="mb-4 text-xl font-black">Starter workflows</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {sampleWorkflows.map((workflow) => (
@@ -215,12 +257,20 @@ export default function DashboardPage() {
               <h2 className="text-2xl font-black">TaskPilot Tools</h2>
               <button className="btn-ghost" onClick={() => setShowTools(false)}>Close</button>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {tools.map((tool) => (
-                <Link key={tool.href} href={tool.href} className="rounded-xl border border-slate-700 bg-slate-950/40 p-3 transition hover:border-amber-400/40" onClick={() => setShowTools(false)}>
-                  <p className="font-semibold text-white">{tool.title}</p>
-                  <p className="text-sm text-slate-400">{tool.desc}</p>
-                </Link>
+            <div className="space-y-4">
+              {(Object.keys(tools) as Array<keyof typeof tools>).map((section) => (
+                <div key={section}>
+                  <h3 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">{section}</h3>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {tools[section].map((tool) => (
+                      <div key={tool.href} className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
+                        <p className="font-semibold text-white">{tool.title}</p>
+                        <p className="text-sm text-slate-400">{tool.desc}</p>
+                        <Link href={tool.href} className="btn-secondary btn-sm mt-2 inline-flex" onClick={() => setShowTools(false)}>Open</Link>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </div>

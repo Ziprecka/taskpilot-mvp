@@ -20,7 +20,7 @@ export const sampleWorkflows: Workflow[] = [
   },
   {
     id: 'sales-outreach-list',
-    workflow_name: 'Build a Sales Outreach List',
+    workflow_name: 'Write and Send 10 Sales Messages',
     category: 'business_sop',
     difficulty: 'beginner',
     estimated_time: '40 minutes',
@@ -37,7 +37,7 @@ export const sampleWorkflows: Workflow[] = [
   },
   {
     id: 'weekly-execution-plan',
-    workflow_name: 'Build a Weekly Execution Plan',
+    workflow_name: 'Run a 25-Minute Focus Block',
     category: 'productivity',
     difficulty: 'beginner',
     estimated_time: '30 minutes',
@@ -54,7 +54,7 @@ export const sampleWorkflows: Workflow[] = [
   },
   {
     id: 'taskpilot-mvp-build',
-    workflow_name: 'Example: TaskPilot MVP Build Workflow (Internal)',
+    workflow_name: 'Developer Example: TaskPilot MVP Build Workflow (Internal)',
     category: 'coding',
     difficulty: 'intermediate',
     estimated_time: '2-5 days',
@@ -218,7 +218,7 @@ export const sampleWorkflows: Workflow[] = [
   },
   {
     id: 'product-research',
-    workflow_name: 'Product Idea Research Workflow',
+    workflow_name: 'Validate a Product Idea',
     category: 'research',
     difficulty: 'beginner',
     estimated_time: '45 minutes',
@@ -235,7 +235,7 @@ export const sampleWorkflows: Workflow[] = [
   },
   {
     id: 'deploy-taskpilot-vercel',
-    workflow_name: 'Deploy TaskPilot MVP to Vercel',
+    workflow_name: 'Deploy a Next.js App',
     category: 'deployment',
     difficulty: 'intermediate',
     estimated_time: '45-90 minutes',
@@ -258,6 +258,23 @@ export const sampleWorkflows: Workflow[] = [
     ],
     completion_criteria: 'TaskPilot is deployed, tested, mobile-installable, and demo-ready.',
     report_template: { summary: 'Vercel deployment workflow completed.', issues_found: [], fixes_made: [], recommendations: [] }
+  },
+  {
+    id: 'clear-stuck-task',
+    workflow_name: 'Clear a Stuck Task',
+    category: 'productivity',
+    difficulty: 'beginner',
+    estimated_time: '20 minutes',
+    required_tools: ['TaskPilot Daily Mode', 'Notes'],
+    required_materials: [],
+    prerequisites: ['Identify one blocked task'],
+    steps: [
+      { step_number: 1, title: 'Define blocker clearly', instructions: 'Write exactly what is blocked and why.', expected_state: 'Blocker statement exists.', visual_checks: [], common_mistakes: ['Vague blocker'], troubleshooting: ['Name one precise bottleneck.'], completion_criteria: 'Blocker is specific.' },
+      { step_number: 2, title: 'Pick smallest unblock move', instructions: 'Choose a 5-10 minute unblock action.', expected_state: 'Tiny unblock action selected.', visual_checks: [], common_mistakes: ['Picking large task'], troubleshooting: ['Shrink to one tiny action.'], completion_criteria: 'Tiny move chosen.' },
+      { step_number: 3, title: 'Run unblock action now', instructions: 'Execute the tiny action and log proof.', expected_state: 'Momentum restored with proof.', visual_checks: [], common_mistakes: ['Planning without action'], troubleshooting: ['Do action before editing plan further.'], completion_criteria: 'Proof logged and blocker reduced.' }
+    ],
+    completion_criteria: 'Blocked task has a concrete next step completed.',
+    report_template: { summary: 'Stuck task cleared.', issues_found: [], fixes_made: [], recommendations: [] }
   }
 ];
 
