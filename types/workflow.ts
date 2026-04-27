@@ -295,6 +295,18 @@ export type DailyCommandState = {
   date: string;
   status: 'planning' | 'focus' | 'blocked' | 'complete';
   daily_goals?: string;
+  /** From Plan Builder / classifier */
+  detected_work_type?: string;
+  plan_title_snapshot?: string;
+  /** Next Move snapshot from last accepted plan (cleared after first outcome completes) */
+  plan_next_move_hint?: {
+    move: string;
+    where: string;
+    do: string;
+    proof: string;
+    timebox: number;
+    avoid: string;
+  };
   selected_day_type: 'build' | 'money' | 'admin' | 'learning' | 'personal' | 'custom' | null;
   custom_context: string;
   outcomes: DailyOutcome[];
