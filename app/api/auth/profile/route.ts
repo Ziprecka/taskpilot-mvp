@@ -3,14 +3,14 @@ import { createUserProfileIfMissing, getCurrentUser, getUserProfile } from '@/li
 import { getSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export async function GET() {
-  const user = await getCurrentUser();
+  const { user } = await getCurrentUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 });
   const profile = await getUserProfile(user.id);
   return NextResponse.json({ ok: true, profile });
 }
 
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const { user } = await getCurrentUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 });
   const body = await req.json();
   const result = await createUserProfileIfMissing({
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const user = await getCurrentUser();
+  const { user } = await getCurrentUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 });
   const body = await req.json();
   const admin = getSupabaseAdminClient();

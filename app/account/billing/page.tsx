@@ -1,10 +1,12 @@
 import { Nav } from '@/components/Nav';
+import { redirect } from 'next/navigation';
 import { getCurrentUser, getUserProfile } from '@/lib/auth';
 import { getPlanLimits } from '@/lib/plans';
 
 export default async function BillingPage() {
-  const user = await getCurrentUser();
-  const profile = user ? await getUserProfile(user.id) : null;
+  const { user } = await getCurrentUser();
+  if (!user) redirect('/login?next=/account/billing');
+  const profile = await getUserProfile(user.id);
   const plan = (profile?.plan || 'free') as 'free' | 'pro' | 'team';
   const limits = getPlanLimits(plan);
   const stripeConfigured = Boolean(process.env.STRIPE_SECRET_KEY && process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);

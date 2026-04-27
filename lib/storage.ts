@@ -7,24 +7,28 @@ function resolveStorageUserId() {
   return localStorage.getItem('taskpilot-auth-user-id') || 'demo-user';
 }
 
+export function getStorageUserKey(userId?: string | null) {
+  return userId || resolveStorageUserId();
+}
+
 export function sessionStorageKey(sessionId: string): string {
-  return `taskpilot-session-${resolveStorageUserId()}-${sessionId}`;
+  return `taskpilot-session-${getStorageUserKey()}-${sessionId}`;
 }
 
 export function getSessionStorageKey(sessionIdOrSlug: string): string {
-  return `taskpilot-session-${resolveStorageUserId()}-${sessionIdOrSlug}`;
+  return `taskpilot-session-${getStorageUserKey()}-${sessionIdOrSlug}`;
 }
 
 export function getDailyStorageKey(dateIso: string): string {
-  return `taskpilot-daily-${resolveStorageUserId()}-${dateIso}`;
+  return `taskpilot-daily-${getStorageUserKey()}-${dateIso}`;
 }
 
 export function getGeneratedWorkflowsStorageKey() {
-  return `taskpilot-generated-workflows-${resolveStorageUserId()}`;
+  return `taskpilot-generated-workflows-${getStorageUserKey()}`;
 }
 
 export function getFeedbackStorageKey() {
-  return `taskpilot-feedback-${resolveStorageUserId()}`;
+  return `taskpilot-feedback-${getStorageUserKey()}`;
 }
 
 export function clampUploads<T>(uploads: T[]): T[] {

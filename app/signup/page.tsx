@@ -44,6 +44,7 @@ export default function SignupPage() {
       }).catch(() => null);
     }
     if (data.session) {
+      router.refresh();
       router.push('/dashboard');
       return;
     }

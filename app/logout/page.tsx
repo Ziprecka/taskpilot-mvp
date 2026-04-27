@@ -9,12 +9,13 @@ export default function LogoutPage() {
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
-      router.replace('/');
+      router.replace('/login');
       return;
     }
     void supabase.auth.signOut().finally(() => {
       localStorage.removeItem('taskpilot-auth-user-id');
-      router.replace('/');
+      router.refresh();
+      router.replace('/login');
     });
   }, [router]);
   return <main className="p-8 text-sm text-slate-300">Signing out...</main>;

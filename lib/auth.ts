@@ -1,24 +1,23 @@
-import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSupabaseAdminClient } from '@/lib/supabase/admin';
+import type { User } from '@supabase/supabase-js';
 
 export async function getCurrentUser() {
-  const supabase = await getSupabaseServerClient();
-  if (!supabase) return null;
-  const { data } = await supabase.auth.getUser();
-  return data.user ?? null;
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.auth.getUser();
+  return { user: data.user ?? null, error };
 }
 
 export async function requireUser() {
-  const user = await getCurrentUser();
+  const { user, error } = await getCurrentUser();
   if (!user) {
-    return { ok: false as const, error: 'Authentication required.' };
+    return { user: null, error };
   }
-  return { ok: true as const, user };
+  return { user, error: null };
 }
 
 export async function getCurrentUserId() {
-  const user = await getCurrentUser();
+  const { user } = await getCurrentUser();
   return user?.id ?? null;
 }
 
@@ -48,9 +47,10 @@ export async function createUserProfileIfMissing(params: { userId: string; email
   return { ok: true as const, created: true };
 }
 
-export async function getBrowserUser() {
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase) return null;
-  const { data } = await supabase.auth.getUser();
-  return data.user ?? null;
+export async function ensureProfileForUser(user: User) {
+  return createUserProfileIfMissing({
+    userId: user.id,
+    email: user.email ?? null,
+    fullName: (user.user_metadata?.full_name as string | undefined) ?? null
+  });
 }

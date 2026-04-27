@@ -9,10 +9,12 @@
    - `http://localhost:3000/auth/callback`
    - `https://taskpilot.live/auth/callback`
    - `https://taskpilot.live/dashboard`
+   - `https://taskpilot.live/login`
 5. Ensure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set.
 6. For beta testing (optional): Authentication -> Providers -> Email -> disable Confirm email if you want faster signup/login loops.
 
 For production, keep email confirmation ON. For early private testing, disabling confirmation is faster.
+If login says "Email not confirmed", click the confirmation email link, resend from `/login`, or temporarily disable confirm email for private beta.
 
 ## Profiles table
 Run `supabase/schema.sql` to create `profiles` and `usage_events`.

@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 
 const PROTECTED_PREFIXES = [
   '/dashboard',
@@ -12,20 +13,40 @@ const PROTECTED_PREFIXES = [
   '/settings/deploy'
 ];
 
-function hasSupabaseAuthCookie(req: NextRequest) {
-  return req.cookies.getAll().some((cookie) => cookie.name.includes('sb-') && cookie.name.includes('auth-token'));
-}
+export async function middleware(req: NextRequest) {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    return NextResponse.next({ request: req });
+  }
+  let response = NextResponse.next({ request: req });
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => req.cookies.set(name, value));
+          response = NextResponse.next({ request: req });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          );
+        }
+      }
+    }
+  );
 
-export function middleware(req: NextRequest) {
+  const { data } = await supabase.auth.getUser();
   const path = req.nextUrl.pathname;
   const needsAuth = PROTECTED_PREFIXES.some((prefix) => path.startsWith(prefix));
-  if (!needsAuth) return NextResponse.next();
-  if (hasSupabaseAuthCookie(req)) return NextResponse.next();
+  if (!needsAuth) return response;
+  if (data.user) return response;
   const loginUrl = new URL('/login', req.url);
   loginUrl.searchParams.set('next', path);
   return NextResponse.redirect(loginUrl);
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|api/ping|api/health).*)']
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)']
 };

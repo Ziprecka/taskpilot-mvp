@@ -16,6 +16,7 @@ export default function DashboardPage() {
   const [feedbackCount, setFeedbackCount] = useState(0);
   const [onboardingComplete, setOnboardingComplete] = useState(true);
   useEffect(() => {
+    void fetch('/api/auth/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => null);
     void fetch('/api/health').then((res) => res.json()).then((data) => setEnv(data?.env ?? null)).catch(() => null);
     void fetch('/api/db/status').then((res) => res.json()).then(setDbStatus).catch(() => null);
     const values: any[] = [];

@@ -22,7 +22,15 @@ export default function LoginPage() {
     if (params.get('error') === 'auth_callback_failed') {
       setError('Auth callback failed. Please try logging in again.');
     }
-  }, []);
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
+    void supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        router.refresh();
+        router.replace(params.get('next') || '/dashboard');
+      }
+    });
+  }, [router]);
 
   async function login() {
     setError('');
@@ -51,6 +59,7 @@ export default function LoginPage() {
         return;
       }
       if (data.user?.id) localStorage.setItem('taskpilot-auth-user-id', data.user.id);
+      router.refresh();
       router.push(nextPath);
     } catch {
       setError('Network error');

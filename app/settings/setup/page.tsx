@@ -104,6 +104,10 @@ export default function SetupPage() {
             <li>Restart dev server.</li>
             <li>Run `supabase/schema.sql` in SQL Editor.</li>
             <li>Run `supabase/seed.sql` in SQL Editor.</li>
+            <li>In Supabase, open Authentication &gt; URL Configuration.</li>
+            <li>Site URL: `https://taskpilot.live`.</li>
+            <li>Redirect URLs: `http://localhost:3000/auth/callback`, `https://taskpilot.live/auth/callback`, `https://taskpilot.live/dashboard`, `https://taskpilot.live/login`.</li>
+            <li>If login says email not confirmed: confirm via email, resend confirmation, or disable email confirmations for private beta.</li>
             <li>Refresh this page.</li>
           </ol>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -116,6 +120,7 @@ export default function SetupPage() {
         <div className="mt-5 flex gap-2">
           <Link href="/settings/deploy" className="btn-secondary inline-flex">Deployment</Link>
           <Link href="/settings/robot" className="btn-secondary inline-flex">Robot API Test</Link>
+          <Link href="/settings/auth-debug" className="btn-secondary inline-flex">Auth Debug</Link>
           <Link href="/dashboard" className="btn-secondary inline-flex">Back to dashboard</Link>
         </div>
         <p className="mt-4 text-xs text-slate-500">TaskPilot version {TASKPILOT_VERSION}</p>

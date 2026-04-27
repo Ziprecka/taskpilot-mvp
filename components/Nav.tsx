@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export function Nav() {
+  const router = useRouter();
   const [user, setUser] = useState<{ email?: string | null } | null>(null);
 
   useEffect(() => {
@@ -14,7 +16,16 @@ export function Nav() {
       setUser(data.user ? { email: data.user.email } : null);
       if (data.user?.id) localStorage.setItem('taskpilot-auth-user-id', data.user.id);
     });
-  }, []);
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ? { email: session.user.email } : null);
+      if (session?.user?.id) localStorage.setItem('taskpilot-auth-user-id', session.user.id);
+      if (!session?.user) localStorage.removeItem('taskpilot-auth-user-id');
+      router.refresh();
+    });
+    return () => {
+      sub.subscription.unsubscribe();
+    };
+  }, [router]);
 
   return (
     <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
