@@ -19,6 +19,7 @@ function buildMockWorkflow(body: any) {
   const steps = Array.from({ length: stepsCount }).map((_, idx) => ({
     step_number: idx + 1,
     title: idx === 0 ? 'Define concrete target and constraints' : `Execute verifiable step ${idx + 1}`,
+    objective: `Complete measurable milestone ${idx + 1} for: ${goal}`,
     instructions:
       idx === 0
         ? `Write the exact target for "${goal}", success criteria, and tools. Output style: ${outputStyle}.`
@@ -30,10 +31,13 @@ function buildMockWorkflow(body: any) {
               ? `Test robot task ${idx + 1} with concrete endpoint/curl commands.`
               : `Execute and verify part ${idx + 1} with concrete proof.`,
     expected_state: `A visible deliverable exists for step ${idx + 1} and can be shown as proof.`,
+    proof_required: category === 'coding' ? 'Command output, file diff, or screenshot.' : 'Screenshot, note, or artifact showing execution.',
     common_mistakes: ['Skipping validation', 'Too broad action'],
     visual_checks: ['Visible output or screenshot', 'Proof attached in notes or upload'],
     troubleshooting: ['Narrow the action and rerun validation for this step.'],
-    completion_criteria: `Step ${idx + 1} output is verifiable with proof.`
+    completion_criteria: `Step ${idx + 1} output is verifiable with proof.`,
+    estimated_minutes: 10 + idx * 2,
+    ai_check_prompt: `Check whether step ${idx + 1} evidence proves expected state was reached.`
   }));
   return {
     workflow_name: `${goal.slice(0, 80)} Workflow`,
@@ -46,12 +50,18 @@ function buildMockWorkflow(body: any) {
     required_tools: toolList,
     required_materials: [],
     prerequisites: [],
+    success_definition: `Goal "${goal}" is complete with proof for each step.`,
+    failure_conditions: ['Missing proof for key steps', 'Critical blockers unresolved'],
     steps,
     completion_criteria: 'All steps completed with proof.',
+    verification_plan: ['Validate each step expected state', 'Check proof artifacts', 'Confirm final success definition'],
     generation_quality: {
       specificity_score: 84,
+      actionability_score: 85,
+      verifiability_score: 88,
+      estimated_usefulness_score: 86,
       usability_score: 86,
-      missing_details: [],
+      missing_details: toolList.length ? [] : ['missing tools'],
       improvement_suggestions: ['Tailor tool versions to your local environment.', 'Add concrete timing estimates per step.']
     },
     report_template: {
@@ -69,21 +79,25 @@ export async function POST(req: NextRequest) {
   if (!client) return NextResponse.json({ ok: true, workflow: buildMockWorkflow(body), source: 'mock' });
   try {
     const prompt = `Generate a practical workflow JSON with keys:
-workflow_name,slug,category,difficulty,goal,description,estimated_time,required_tools,required_materials,prerequisites,steps,completion_criteria,generation_quality,report_template.
+workflow_name,slug,category,difficulty,goal,description,estimated_time,required_tools,required_materials,prerequisites,success_definition,failure_conditions,steps,completion_criteria,verification_plan,generation_quality,report_template.
 Rules:
 - 6-14 steps
 - every step title starts with an action verb
-- every step has concrete expected_state and completion_criteria
+- every step has: objective,instructions,expected_state,proof_required,completion_criteria,estimated_minutes,ai_check_prompt
 - include common_mistakes and visual_checks per step
 - coding workflows must reference likely files, commands, settings, routes, or env vars
 - deployment workflows must include exact health/setup/test URLs and env checks
 - robot workflows must include endpoint tests and curl examples
 - business workflows include concrete deliverables
 - research workflows include source types and decision criteria
+- daily productivity workflows include proof of execution
 - split broad steps into smaller steps
 - avoid vague words: optimize, improve, finalize, research thoroughly
 - generation_quality must include:
   - specificity_score (0-100)
+  - actionability_score (0-100)
+  - verifiability_score (0-100)
+  - estimated_usefulness_score (0-100)
   - usability_score (0-100)
   - missing_details (string[])
   - improvement_suggestions (string[])`;
@@ -101,6 +115,9 @@ Rules:
     if (!merged.generation_quality) {
       merged.generation_quality = {
         specificity_score: 80,
+        actionability_score: 80,
+        verifiability_score: 80,
+        estimated_usefulness_score: 80,
         usability_score: 80,
         missing_details: [],
         improvement_suggestions: []

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Nav } from '@/components/Nav';
+import { TASKPILOT_VERSION } from '@/lib/version';
 
 interface HealthPayload {
   ok: boolean;
@@ -112,6 +113,7 @@ export default function SetupPage() {
           <Link href="/settings/robot" className="btn-secondary inline-flex">Robot API Test</Link>
           <Link href="/dashboard" className="btn-secondary inline-flex">Back to dashboard</Link>
         </div>
+        <p className="mt-4 text-xs text-slate-500">TaskPilot version {TASKPILOT_VERSION}</p>
       </section>
     </main>
   );

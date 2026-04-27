@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Nav } from '@/components/Nav';
 
 interface SavedSession {
@@ -15,10 +15,15 @@ interface SavedSession {
   completed_steps?: number[];
   sync_status?: string;
   updated_at?: string;
+  ai_source?: string;
+  mode?: string;
+  report?: unknown;
 }
 
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<SavedSession[]>([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked' | 'complete'>('all');
 
   useEffect(() => {
     const values: SavedSession[] = [];
@@ -27,9 +32,8 @@ export default function SessionsPage() {
       if (!key?.startsWith('taskpilot-session-')) continue;
       try {
         const parsed = JSON.parse(localStorage.getItem(key) || '{}');
-        if (parsed?.session) {
-          values.push(parsed.session as SavedSession);
-        } else if (parsed?.session_id) {
+        if (parsed?.session) values.push(parsed.session as SavedSession);
+        else if (parsed?.session_id) {
           values.push({
             id: parsed.session_id,
             workflow_slug: parsed.workflow_slug,
@@ -39,7 +43,10 @@ export default function SessionsPage() {
             current_step: parsed.current_step,
             completed_steps: parsed.completed_steps,
             updated_at: parsed.updated_at,
-            sync_status: parsed.sync_status
+            sync_status: parsed.sync_status,
+            ai_source: parsed.ai_source,
+            mode: parsed.mode,
+            report: parsed.report
           });
         }
       } catch {
@@ -66,35 +73,62 @@ export default function SessionsPage() {
       .catch(() => null);
   }, []);
 
+  const filtered = useMemo(
+    () =>
+      sessions
+        .filter((session) => (statusFilter === 'all' ? true : (session.status || 'active') === statusFilter))
+        .filter((session) =>
+          `${session.workflow_name || ''} ${session.goal || ''}`.toLowerCase().includes(search.toLowerCase())
+        )
+        .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')),
+    [sessions, search, statusFilter]
+  );
+
   return (
     <main>
       <Nav />
-      <section className="mx-auto max-w-6xl px-6 py-8">
+      <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
         <h1 className="mb-2 text-3xl font-black">Saved Sessions</h1>
-        <p className="mb-5 text-slate-400">Local sessions are listed first. Supabase sessions appear when sync is enabled.</p>
+        <p className="mb-5 text-slate-400">Search and resume exact workflow state.</p>
+        <div className="card mb-4 grid gap-2 p-4 sm:grid-cols-2">
+          <input className="input" placeholder="Search sessions..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'blocked' | 'complete')}>
+            <option value="all">all status</option>
+            <option value="active">active</option>
+            <option value="blocked">blocked</option>
+            <option value="complete">complete</option>
+          </select>
+        </div>
         <div className="grid gap-3 md:grid-cols-2">
-          {sessions.map((session) => (
-            <div key={session.id} className="card p-4">
-              <p className="text-sm text-slate-400">{session.workflow_name || session.goal || session.workflow_slug || session.workflow_id || 'Workflow session'}</p>
-              <p className="text-sm text-slate-300">Status: {session.status || 'active'}</p>
-              <p className="text-sm text-slate-300">Current step: {session.current_step || 1}</p>
-              <p className="text-sm text-slate-300">Completed: {session.completed_steps?.length || 0}</p>
-              <p className="text-xs text-slate-500">Sync status: {session.sync_status || 'local'}</p>
-              <div className="mt-3 flex gap-2">
-                <Link className="btn-secondary text-sm" href={`/session/${session.workflow_slug || session.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(session.id)}`}>Open</Link>
-                <button
-                  className="btn-secondary text-sm"
-                  onClick={() => {
-                    localStorage.removeItem(`taskpilot-session-${session.id}`);
-                    if (session.workflow_slug) localStorage.removeItem(`taskpilot-session-${session.workflow_slug}`);
-                    setSessions((prev) => prev.filter((item) => item.id !== session.id));
-                  }}
-                >
-                  Delete local copy
-                </button>
+          {filtered.map((session) => {
+            const completed = session.completed_steps?.length || 0;
+            const percent = Math.min(100, completed * 10);
+            return (
+              <div key={session.id} className="card p-4">
+                <p className="text-sm text-slate-400">{session.workflow_name || session.goal || session.workflow_slug || session.workflow_id || 'Workflow session'}</p>
+                <p className="text-sm text-slate-300">Status: {session.status || 'active'} · Step: {session.current_step || 1}</p>
+                <p className="text-sm text-slate-300">Percent complete: {percent}% · Sync: {session.sync_status || 'local'}</p>
+                <p className="text-xs text-slate-500">AI source: {session.ai_source || 'unknown'} · Report: {session.report ? 'yes' : 'no'}</p>
+                <p className="text-xs text-slate-500">Last updated: {session.updated_at || 'unknown'}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link className="btn-secondary text-sm" href={`/session/${session.workflow_slug || session.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(session.id)}`}>Continue</Link>
+                  <Link className="btn-secondary text-sm" href={`/session/${session.workflow_slug || session.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(session.id)}&mode=report`}>Generate Report</Link>
+                  <button className="btn-secondary text-sm" onClick={() => setSessions((prev) => [{ ...session, id: `${session.id}-copy-${Date.now()}` }, ...prev])}>Duplicate Session</button>
+                  <button
+                    className="btn-secondary text-sm"
+                    onClick={() => {
+                      localStorage.removeItem(`taskpilot-session-${session.id}`);
+                      if (session.workflow_slug) localStorage.removeItem(`taskpilot-session-${session.workflow_slug}`);
+                      setSessions((prev) => prev.filter((item) => item.id !== session.id));
+                    }}
+                  >
+                    Delete Local Copy
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
+          {!filtered.length && <p className="text-sm text-slate-500">No sessions found.</p>}
         </div>
       </section>
     </main>

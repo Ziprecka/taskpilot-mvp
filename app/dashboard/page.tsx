@@ -5,12 +5,15 @@ import { useEffect, useState } from 'react';
 import { Nav } from '@/components/Nav';
 import { WorkflowCard } from '@/components/WorkflowCard';
 import { sampleWorkflows } from '@/data/sampleWorkflows';
+import { TASKPILOT_VERSION } from '@/lib/version';
 
 export default function DashboardPage() {
   const [env, setEnv] = useState<any>(null);
   const [dbStatus, setDbStatus] = useState<any>(null);
   const [savedSessions, setSavedSessions] = useState<any[]>([]);
   const [generatedCount, setGeneratedCount] = useState(0);
+  const [feedbackCount, setFeedbackCount] = useState(0);
+  const [onboardingComplete, setOnboardingComplete] = useState(true);
   useEffect(() => {
     void fetch('/api/health').then((res) => res.json()).then((data) => setEnv(data?.env ?? null)).catch(() => null);
     void fetch('/api/db/status').then((res) => res.json()).then(setDbStatus).catch(() => null);
@@ -32,6 +35,13 @@ export default function DashboardPage() {
     } catch {
       setGeneratedCount(0);
     }
+    try {
+      const feedback = JSON.parse(localStorage.getItem('taskpilot-feedback-items') || '[]');
+      setFeedbackCount(Array.isArray(feedback) ? feedback.filter((item: any) => item.status !== 'fixed').length : 0);
+    } catch {
+      setFeedbackCount(0);
+    }
+    setOnboardingComplete(localStorage.getItem('taskpilot-onboarding-complete') === 'true');
   }, []);
 
   const robotReadiness =
@@ -60,10 +70,17 @@ export default function DashboardPage() {
             <Link href="/settings/deploy" className="btn-secondary">Deployment readiness</Link>
             <Link href="/settings/robot" className="btn-secondary">Robot API</Link>
             <Link href="/sessions" className="btn-secondary">Saved sessions</Link>
+            <Link href="/workflows/saved" className="btn-secondary">Workflow Library</Link>
             <Link href="/workflows/generate" className="btn-secondary">Generate Workflow</Link>
+            <Link href="/demo" className="btn-secondary">Demo Mode</Link>
             <Link href="/workflows/new" className="btn-primary">Start new workflow</Link>
           </div>
         </div>
+        {!onboardingComplete && (
+          <div className="mb-4 rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-100">
+            New here? Finish onboarding. <Link href="/onboarding" className="underline">Open onboarding</Link>
+          </div>
+        )}
         <div className="mb-8 grid gap-4 md:grid-cols-3">
           <div className="card p-5"><p className="text-sm text-slate-400">Active sessions</p><p className="text-3xl font-black">1</p></div>
           <div className="card p-5"><p className="text-sm text-slate-400">Recent saved workflows</p><p className="text-3xl font-black">{generatedCount + sampleWorkflows.length}</p></div>
@@ -77,6 +94,11 @@ export default function DashboardPage() {
             <Link href="/daily" className="btn-secondary mt-2 inline-flex">Open Daily Mode</Link>
           </div>
           <div className="card p-5">
+            <p className="text-sm text-slate-400">Resume latest session</p>
+            <p className="text-lg font-bold">Continue where you left off</p>
+            <Link href={savedSessions[0] ? `/session/${savedSessions[0].workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(savedSessions[0].id)}` : '/session/taskpilot-mvp-build'} className="btn-secondary mt-2 inline-flex">Resume latest</Link>
+          </div>
+          <div className="card p-5">
             <p className="mb-2 text-sm text-slate-400">Continue latest session</p>
             <Link href="/session/taskpilot-mvp-build" className="btn-secondary mr-2 inline-flex">Continue latest session</Link>
             <Link href="/session/taskpilot-mvp-build" className="btn-primary inline-flex">Start TaskPilot MVP Build Workflow</Link>
@@ -85,6 +107,11 @@ export default function DashboardPage() {
             <p className="text-sm text-slate-400">Generate New Workflow</p>
             <p className="text-lg font-bold">Custom AI-generated plans</p>
             <Link href="/workflows/generate" className="btn-secondary mt-2 inline-flex">Open Generator</Link>
+          </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Beta Feedback</p>
+            <p className="text-lg font-bold">Open items: {feedbackCount}</p>
+            <Link href="/feedback" className="btn-secondary mt-2 inline-flex">Log Beta Feedback</Link>
           </div>
           <div className="card p-5">
             <p className="text-sm text-slate-400">Mobile App / PWA</p>
@@ -115,6 +142,7 @@ export default function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {sampleWorkflows.map((workflow) => <WorkflowCard key={workflow.id} workflow={workflow} />)}
         </div>
+        <p className="mt-6 text-xs text-slate-500">TaskPilot version {TASKPILOT_VERSION}</p>
       </section>
     </main>
   );

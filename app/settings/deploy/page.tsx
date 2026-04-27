@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Nav } from '@/components/Nav';
+import { TASKPILOT_VERSION } from '@/lib/version';
 
 const ENV_TEMPLATE = `OPENAI_API_KEY=
 NEXT_PUBLIC_SUPABASE_URL=
@@ -130,6 +131,7 @@ export default function DeployPage() {
           </ol>
           <Link href="/deploy-test" className="btn-secondary mt-3 inline-flex text-sm">Open deploy-test page</Link>
         </div>
+        <p className="mt-4 text-xs text-slate-500">TaskPilot version {TASKPILOT_VERSION}</p>
       </section>
     </main>
   );

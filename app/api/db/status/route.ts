@@ -16,7 +16,7 @@ export async function GET() {
         hasSupabaseServiceRole: env.hasSupabaseServiceRole
       },
       connection: { canConnect: false, error: guard.body.reason },
-      schema: { workflowsTable: false, workflowStepsTable: false, installed: false },
+      schema: { workflowsTable: false, workflowStepsTable: false, feedbackItemsTable: false, aiMessageFeedbackTable: false, installed: false },
       seed: { taskpilotWorkflowExists: false, installed: false },
       robot: { tables_installed: false, routes_exist: true, test_page_exists: true, heartbeat_successful: false },
       next_fix: 'Add Supabase variables to .env.local and restart npm run dev.'
@@ -30,6 +30,8 @@ export async function GET() {
   const robotStatesTable = await guard.supabase.from('robot_states').select('id').limit(1);
   const robotEventsTable = await guard.supabase.from('robot_events').select('id').limit(1);
   const robotCommandsTable = await guard.supabase.from('robot_commands').select('id').limit(1);
+  const feedbackItemsTable = await guard.supabase.from('feedback_items').select('id').limit(1);
+  const aiMessageFeedbackTable = await guard.supabase.from('ai_message_feedback').select('id').limit(1);
   const seedCheck = await guard.supabase.from('workflows').select('id').eq('slug', 'taskpilot-mvp-build').maybeSingle();
   const canConnect = !workflowsTable.error || !stepsTable.error;
   const schemaInstalled =
@@ -40,7 +42,9 @@ export async function GET() {
     !robotDevicesTable.error &&
     !robotStatesTable.error &&
     !robotEventsTable.error &&
-    !robotCommandsTable.error;
+    !robotCommandsTable.error &&
+    !feedbackItemsTable.error &&
+    !aiMessageFeedbackTable.error;
   const seedInstalled = !seedCheck.error && Boolean(seedCheck.data?.id);
   const nextFix = !env.hasSupabaseUrl || !env.hasSupabaseAnonKey || !env.hasSupabaseServiceRole
     ? 'Add Supabase variables to .env.local and restart npm run dev.'
@@ -76,6 +80,8 @@ export async function GET() {
       robotStatesTable: !robotStatesTable.error,
       robotEventsTable: !robotEventsTable.error,
       robotCommandsTable: !robotCommandsTable.error,
+      feedbackItemsTable: !feedbackItemsTable.error,
+      aiMessageFeedbackTable: !aiMessageFeedbackTable.error,
       installed: schemaInstalled
     },
     seed: {

@@ -35,6 +35,8 @@ export default function GenerateWorkflowPage() {
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
   const [saved, setSaved] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [improving, setImproving] = useState(false);
+  const [runMode, setRunMode] = useState<'guided' | 'fast_checklist' | 'debug' | 'proof' | 'robot'>('guided');
 
   async function generate() {
     setLoading(true);
@@ -76,6 +78,9 @@ export default function GenerateWorkflowPage() {
       })),
       generation_quality: raw.generation_quality ?? {
         specificity_score: 80,
+        actionability_score: 80,
+        verifiability_score: 80,
+        estimated_usefulness_score: 80,
         usability_score: 80,
         missing_details: [],
         improvement_suggestions: []
@@ -86,6 +91,19 @@ export default function GenerateWorkflowPage() {
     setSaved(false);
     setWizardStep(2);
     setLoading(false);
+  }
+
+  async function improveWorkflow() {
+    if (!generated) return;
+    setImproving(true);
+    const res = await fetch('/api/workflows/improve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflow: generated })
+    });
+    const payload = await res.json();
+    if (payload?.ok && payload?.workflow) setGenerated(payload.workflow as Workflow);
+    setImproving(false);
   }
 
   async function saveAndOptionallySync(workflow: Workflow) {
@@ -186,7 +204,9 @@ export default function GenerateWorkflowPage() {
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <p className="badge">Source: {source}</p>
               <p className="badge">Specificity: {generated.generation_quality?.specificity_score ?? 0}/100</p>
-              <p className="badge">Usability: {generated.generation_quality?.usability_score ?? 0}/100</p>
+              <p className="badge">Actionability: {generated.generation_quality?.actionability_score ?? generated.generation_quality?.usability_score ?? 0}/100</p>
+              <p className="badge">Verifiability: {generated.generation_quality?.verifiability_score ?? 0}/100</p>
+              <p className="badge">Estimated usefulness: {generated.generation_quality?.estimated_usefulness_score ?? generated.generation_quality?.usability_score ?? 0}/100</p>
             </div>
             <input className="input mb-2" value={generated.workflow_name} onChange={(e) => setGenerated((prev) => (prev ? { ...prev, workflow_name: e.target.value } : prev))} />
             <p className="mb-3 text-sm text-slate-400">{generated.steps.length} steps · {generated.category} · {generated.difficulty}</p>
@@ -244,6 +264,7 @@ export default function GenerateWorkflowPage() {
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="btn-secondary" onClick={generate}>Regenerate</button>
+              <button className="btn-secondary" onClick={improveWorkflow} disabled={improving}>{improving ? 'Improving...' : 'Improve Workflow'}</button>
               <button className="btn-secondary" onClick={() => setEditing((prev) => !prev)}>{editing ? 'Done Editing' : 'Edit workflow'}</button>
               <button className="btn-primary" onClick={async () => generated && saveAndOptionallySync(generated)}>Save and Start</button>
             </div>
@@ -254,8 +275,15 @@ export default function GenerateWorkflowPage() {
           <div className="card p-4 sm:p-5">
             <h2 className="mb-2 text-2xl font-black">Step 3 · Saved</h2>
             <p className="mb-3 text-slate-300">Workflow saved. You can start now or review saved workflows.</p>
+            <select className="input mb-3 max-w-xs" value={runMode} onChange={(e) => setRunMode(e.target.value as 'guided' | 'fast_checklist' | 'debug' | 'proof' | 'robot')}>
+              <option value="guided">Guided Mode</option>
+              <option value="fast_checklist">Fast Checklist Mode</option>
+              <option value="debug">Debug Mode</option>
+              <option value="proof">Proof Mode</option>
+              <option value="robot">Robot Mode</option>
+            </select>
             <div className="flex flex-wrap gap-2">
-              <button className="btn-primary" onClick={() => router.push(`/session/${generated.id}?goal=${encodeURIComponent(form.goal || generated.workflow_name)}`)}>Start Workflow</button>
+              <button className="btn-primary" onClick={() => router.push(`/session/${generated.id}?goal=${encodeURIComponent(form.goal || generated.workflow_name)}&mode=${runMode}`)}>Start Workflow</button>
               <button className="btn-secondary" onClick={() => router.push('/workflows/saved')}>View Saved Workflows</button>
               <button className="btn-secondary" onClick={() => {
                 setWizardStep(1);

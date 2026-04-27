@@ -62,6 +62,7 @@ export default function SessionPage() {
   const [envStatus, setEnvStatus] = useState<any>(null);
   const [syncErrorDetail, setSyncErrorDetail] = useState<string>('');
   const [lastSavedAt, setLastSavedAt] = useState<string>(new Date().toISOString());
+  const [mobileTab, setMobileTab] = useState<'step' | 'ai' | 'proof' | 'tracker'>('step');
 
   useEffect(() => {
     setWorkflow(getWorkflowById(params.id));
@@ -79,6 +80,14 @@ export default function SessionPage() {
 
   const currentStep = workflow.steps.find((step) => step.step_number === session.current_step) ?? workflow.steps[0];
   const isWorkflowComplete = session.status === 'complete' || session.completed_steps.length >= workflow.steps.length;
+  const hasCurrentProof = uploads.length > 0 || notes.length > 0;
+  const proofStatusByStep: Record<string, 'not_required' | 'required_missing' | 'submitted' | 'accepted' | 'overridden'> =
+    workflow.steps.reduce((acc, step) => {
+      if (!step.proof_required) acc[String(step.step_number)] = 'not_required';
+      else if (session.completed_steps.includes(step.step_number)) acc[String(step.step_number)] = hasCurrentProof ? 'accepted' : 'overridden';
+      else acc[String(step.step_number)] = hasCurrentProof ? 'submitted' : 'required_missing';
+      return acc;
+    }, {} as Record<string, 'not_required' | 'required_missing' | 'submitted' | 'accepted' | 'overridden'>);
 
   function restoreFromLocal() {
     try {
@@ -239,6 +248,16 @@ export default function SessionPage() {
         status: complete ? 'complete' : 'active'
       };
     });
+  }
+
+  function overrideCompleteStep() {
+    completeStep();
+    setSystemNotice('Step marked complete with override (proof missing).');
+  }
+
+  function focusProofTab() {
+    setMobileTab('proof');
+    setSystemNotice('Add proof upload or a note, then complete the step.');
   }
 
   function onAIUpdate(response: Partial<AIResponse> | null | undefined) {
@@ -475,16 +494,22 @@ export default function SessionPage() {
           </div>
         )}
         {savedBanner && <div className="mb-5 rounded-xl border border-emerald-400/50 bg-emerald-400/10 p-3 text-sm text-emerald-200">Workflow snapshot saved locally.</div>}
+        <div className="mb-3 flex flex-wrap gap-2 lg:hidden">
+          <button className={`btn-secondary text-xs ${mobileTab === 'step' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('step')}>Step</button>
+          <button className={`btn-secondary text-xs ${mobileTab === 'ai' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('ai')}>AI</button>
+          <button className={`btn-secondary text-xs ${mobileTab === 'proof' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('proof')}>Proof</button>
+          <button className={`btn-secondary text-xs ${mobileTab === 'tracker' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('tracker')}>Tracker</button>
+        </div>
         <div className="mb-4 card p-4 lg:hidden">
           <p className="text-sm text-slate-400">Progress</p>
           <p className="text-lg font-bold">Step {session.current_step} of {workflow.steps.length}</p>
           <p className="text-sm text-slate-300">Current: {currentStep?.title}</p>
         </div>
         <div className="grid gap-5 lg:grid-cols-[300px_1fr_420px]">
-          <div className="hidden lg:block">
-            <StepTracker steps={workflow.steps} currentStep={session.current_step} completedSteps={session.completed_steps} />
+          <div className={`${mobileTab === 'tracker' ? 'block' : 'hidden'} lg:block`}>
+            <StepTracker steps={workflow.steps} currentStep={session.current_step} completedSteps={session.completed_steps} proofStatusByStep={proofStatusByStep} />
           </div>
-          <div className="space-y-5">
+          <div className={`space-y-5 ${mobileTab === 'step' || mobileTab === 'proof' ? 'block' : 'hidden'} lg:block`}>
             {isWorkflowComplete ? (
               <div className="card p-6">
                 <p className="badge mb-3">Workflow Complete</p>
@@ -516,6 +541,10 @@ export default function SessionPage() {
               <CurrentStepCard
                 step={currentStep}
                 onComplete={completeStep}
+                onOverrideComplete={overrideCompleteStep}
+                onAddProof={focusProofTab}
+                mode={session.mode}
+                hasProof={hasCurrentProof}
                 nextAction={latestAIResponse?.next_action}
                 status={session.status}
                 syncStatus={syncState}
@@ -534,6 +563,7 @@ export default function SessionPage() {
               </div>
               {systemNotice && <p className="mt-3 text-sm text-slate-300">{systemNotice}</p>}
             </div>
+            <div className={`${mobileTab === 'proof' ? 'block' : 'hidden'} lg:block`}>
             <UploadPanel
               uploads={uploads}
               notes={notes}
@@ -543,6 +573,7 @@ export default function SessionPage() {
               onClearContext={clearContext}
               onCheckLatestProof={checkLatestProof}
             />
+            </div>
             <div className="card p-5">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Session notes / uploads</h2>
               <p className="mb-3 text-xs text-slate-500">{uploads.length} uploads · {notes.length} note{notes.length === 1 ? '' : 's'}</p>
@@ -600,7 +631,7 @@ export default function SessionPage() {
               </div>
             )}
           </div>
-          <div className="order-2 lg:order-none">
+          <div className={`order-2 ${mobileTab === 'ai' ? 'block' : 'hidden'} lg:order-none lg:block`}>
             <AIChatPanel
               workflow={workflow}
               session={session}
