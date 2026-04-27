@@ -110,6 +110,9 @@ export default function DashboardPage() {
     if (String(prefs.work_type).includes('research')) return base.filter((w) => w.category === 'research' || w.category === 'productivity');
     return base;
   }, [prefs]);
+  const totalXP = Number(dailyState?.total_xp || 0);
+  const level = Number(dailyState?.level || Math.floor(totalXP / 100) + 1);
+  const lastCompleted = dailyState?.outcomes?.filter((o: any) => o.status === 'done')?.slice(-1)[0]?.title || 'No completed outcomes yet';
   const recommended = !onboardingComplete
     ? { title: 'Finish onboarding', reason: 'Personalize recommendations and coaching style.', href: '/onboarding', cta: 'Continue onboarding' }
     : dailyState?.active_focus_block?.status === 'active'
@@ -269,6 +272,16 @@ export default function DashboardPage() {
             <p className="text-sm text-slate-400">Focus minutes this week</p>
             <p className="text-3xl font-black">{weeklyFocusMinutes}</p>
             <p className="text-xs text-slate-500">Time invested in deliberate execution blocks.</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Level / XP</p>
+            <p className="text-3xl font-black">L{level}</p>
+            <p className="text-xs text-slate-500">{totalXP} total XP</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Last completed outcome</p>
+            <p className="text-lg font-bold">{lastCompleted}</p>
+            <p className="text-xs text-slate-500">Keep momentum with your next mission.</p>
           </div>
         </div>
 

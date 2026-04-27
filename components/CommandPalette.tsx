@@ -10,11 +10,16 @@ const COMMANDS: Command[] = [
   { label: 'Dashboard', href: '/dashboard' },
   { label: 'Daily Mode', href: '/daily' },
   { label: 'Plan Today', href: '/daily' },
+  { label: 'Start Focus Block', href: '/daily' },
+  { label: 'Log Proof', href: '/daily' },
+  { label: 'Close the Day', href: '/daily' },
+  { label: 'Save Lesson', href: '/daily' },
   { label: 'Generate Workflow', href: '/workflows/generate' },
   { label: 'Open Workflow Library', href: '/workflows/saved' },
   { label: 'Open Saved Sessions', href: '/sessions' },
   { label: 'Open Reports', href: '/reports' },
-  { label: 'Open Proof Log', href: '/proof' },
+  { label: 'Open Evidence Vault', href: '/proof' },
+  { label: 'Show Weekly Progress', href: '/reports' },
   { label: 'Start New Workflow', href: '/workflows/new' },
   { label: 'Demo', href: '/demo' },
   { label: 'Open Setup', href: '/settings/setup' },
@@ -41,7 +46,9 @@ export function CommandPalette() {
         { label: 'New Daily Outcome', action: 'daily-add-outcome' },
         { label: 'Plan Today', action: 'daily-plan-today' },
         { label: 'Start Focus', action: 'daily-start-focus' },
-        { label: 'Generate Daily Report', action: 'daily-generate-report' }
+        { label: 'Log Proof', action: 'daily-log-proof' },
+        { label: 'Close the Day', action: 'daily-generate-report' },
+        { label: 'Save Lesson', action: 'daily-save-lesson' }
       ]);
       return;
     }

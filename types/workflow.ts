@@ -213,6 +213,15 @@ export interface DailyReport {
   money_score: number;
   execution_score: number;
   created_at: string;
+  reflections?: {
+    moved_forward: string;
+    proof_created: string;
+    time_leak: string;
+    repeat: string;
+    avoid: string;
+    tomorrow_first_move: string;
+  };
+  lessons_captured?: number;
 }
 
 export interface DailyAIResponse {
@@ -252,8 +261,27 @@ export type DailyCommandState = {
   events: DailyEvent[];
   coach_messages: DailyCoachMessage[];
   report: DailyReport | null;
+  total_xp?: number;
+  xp_today?: number;
+  level?: number;
+  streak?: number;
+  best_streak?: number;
+  proof_count_today?: number;
+  lessons?: LearningCard[];
   last_saved_at: string;
 };
+
+export interface LearningCard {
+  id: string;
+  lesson_title: string;
+  summary: string;
+  mistake_or_blocker: string;
+  principle: string;
+  next_time_action: string;
+  source_type: 'daily_outcome' | 'workflow_step';
+  source_id: string;
+  created_at: string;
+}
 
 export type AIIntent =
   | 'next_step'

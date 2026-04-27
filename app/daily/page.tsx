@@ -2,13 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { DailyLoopProgress } from '@/components/DailyLoopProgress';
+import { DailyScorecard } from '@/components/DailyScorecard';
+import { LearningCard } from '@/components/LearningCard';
 import { Nav } from '@/components/Nav';
 import { useToast } from '@/components/ToastProvider';
 import { addRecentActivity } from '@/lib/activity';
 import { trackProductEvent } from '@/lib/productEvents';
 import { getDailyStorageKey, getReportsStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
-import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyEvent, DailyOutcome, DailyReport, FocusBlock, Workflow } from '@/types/workflow';
+import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyEvent, DailyOutcome, DailyReport, FocusBlock, LearningCard as LearningCardType, Workflow } from '@/types/workflow';
 
 type DayType = NonNullable<DailyCommandState['selected_day_type']>;
 type DailyTab = 'outcomes' | 'focus' | 'coach' | 'timeline' | 'report';
@@ -78,6 +81,13 @@ function buildInitialState(date: string): DailyCommandState {
     events: [],
     coach_messages: [],
     report: null,
+    total_xp: 0,
+    xp_today: 0,
+    level: 1,
+    streak: 0,
+    best_streak: 0,
+    proof_count_today: 0,
+    lessons: [],
     last_saved_at: nowIso()
   };
 }
@@ -103,13 +113,43 @@ export default function DailyPage() {
   const [blockerModalOutcomeId, setBlockerModalOutcomeId] = useState<string | null>(null);
   const [blockerNote, setBlockerNote] = useState('');
   const [showAllEvents, setShowAllEvents] = useState(false);
+  const [lessonSourceId, setLessonSourceId] = useState<string | null>(null);
+  const [lessonDraft, setLessonDraft] = useState<LearningCardType>({
+    id: '',
+    lesson_title: '',
+    summary: '',
+    mistake_or_blocker: '',
+    principle: '',
+    next_time_action: '',
+    source_type: 'daily_outcome',
+    source_id: '',
+    created_at: ''
+  });
+  const [reflectionDraft, setReflectionDraft] = useState({
+    moved_forward: '',
+    proof_created: '',
+    time_leak: '',
+    repeat: '',
+    avoid: '',
+    tomorrow_first_move: ''
+  });
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        setState(parsed);
+        setState({
+          ...buildInitialState(today),
+          ...parsed,
+          total_xp: parsed?.total_xp ?? 0,
+          xp_today: parsed?.xp_today ?? 0,
+          level: parsed?.level ?? 1,
+          streak: parsed?.streak ?? 0,
+          best_streak: parsed?.best_streak ?? 0,
+          proof_count_today: parsed?.proof_count_today ?? 0,
+          lessons: Array.isArray(parsed?.lessons) ? parsed.lessons : []
+        });
         if (parsed?.selected_day_type) setDayType(parsed.selected_day_type);
         if (parsed?.custom_context) setCustomDirection(parsed.custom_context);
       }
@@ -158,15 +198,27 @@ export default function DailyPage() {
     function onGenerateReport() {
       generateReport();
     }
+    function onLogProof() {
+      if (state.active_outcome_id) logProof(state.active_outcome_id, 'Quick proof from command palette.');
+      else pushToast('No active outcome for proof.');
+    }
+    function onSaveLesson() {
+      if (state.active_outcome_id) openLessonModal(state.active_outcome_id);
+      else pushToast('Complete an outcome first to save a lesson.');
+    }
     window.addEventListener('daily-add-outcome', onAddOutcome as EventListener);
     window.addEventListener('daily-plan-today', onPlanToday as EventListener);
     window.addEventListener('daily-start-focus', onStartFocus as EventListener);
+    window.addEventListener('daily-log-proof', onLogProof as EventListener);
     window.addEventListener('daily-generate-report', onGenerateReport as EventListener);
+    window.addEventListener('daily-save-lesson', onSaveLesson as EventListener);
     return () => {
       window.removeEventListener('daily-add-outcome', onAddOutcome as EventListener);
       window.removeEventListener('daily-plan-today', onPlanToday as EventListener);
       window.removeEventListener('daily-start-focus', onStartFocus as EventListener);
+      window.removeEventListener('daily-log-proof', onLogProof as EventListener);
       window.removeEventListener('daily-generate-report', onGenerateReport as EventListener);
+      window.removeEventListener('daily-save-lesson', onSaveLesson as EventListener);
     };
   }, [state.outcomes.length, state.active_outcome_id]);
 
@@ -176,6 +228,15 @@ export default function DailyPage() {
 
   function logEvent(type: DailyEvent['type'], content: string) {
     updateState((prev) => ({ ...prev, events: [{ id: crypto.randomUUID(), type, content, created_at: nowIso() }, ...prev.events].slice(0, 200) }));
+  }
+
+  function awardXP(amount: number, reason: string) {
+    updateState((prev) => {
+      const total = (prev.total_xp || 0) + amount;
+      const level = Math.floor(total / 100) + 1;
+      return { ...prev, total_xp: total, xp_today: (prev.xp_today || 0) + amount, level };
+    });
+    pushToast(`+${amount} XP ${reason}`);
   }
 
   function makeOutcome(title: string, idx: number): DailyOutcome {
@@ -219,6 +280,7 @@ export default function DailyPage() {
     logEvent('created_outcome', `Outcome created: ${seed}`);
     addRecentActivity({ type: 'daily_outcome_created', title: seed, route: '/daily' });
     void trackProductEvent('daily_plan_created', '/daily', { title: seed, dayType });
+    awardXP(10, 'Plan created');
     pushToast('Outcome added.');
   }
 
@@ -246,6 +308,7 @@ export default function DailyPage() {
     }));
     logEvent('generated_top3', `Planned top 3 outcomes for ${dayType} day.`);
     void trackProductEvent('daily_plan_created', '/daily', { dayType, count: chosen.length });
+    awardXP(10, 'Plan created');
     pushToast('Daily plan accepted.');
     setShowPlanReview(false);
   }
@@ -285,6 +348,7 @@ export default function DailyPage() {
     logEvent('started_focus', `Focus started: ${outcome.title}`);
     addRecentActivity({ type: 'focus_started', title: `Focus started for ${outcome.title}`, route: '/daily' });
     void trackProductEvent('focus_started', '/daily', { outcome_id: outcome.id, title: outcome.title });
+    awardXP(15, 'Focus started');
     pushToast('Focus block started.');
   }
 
@@ -324,6 +388,7 @@ export default function DailyPage() {
     }));
     logEvent('completed_outcome', `Outcome completed: ${target.title}`);
     addRecentActivity({ type: 'daily_outcome_completed', title: target.title, route: '/daily' });
+    awardXP(20, 'Outcome complete');
     pushToast('Outcome marked done.');
   }
 
@@ -352,6 +417,8 @@ export default function DailyPage() {
     }));
     logEvent('proof_added', 'Proof logged.');
     void trackProductEvent('proof_logged', '/daily', { outcome_id: id });
+    updateState((prev) => ({ ...prev, proof_count_today: (prev.proof_count_today || 0) + 1 }));
+    awardXP(15, 'Evidence logged');
     pushToast('Proof logged.');
   }
 
@@ -405,8 +472,33 @@ export default function DailyPage() {
     saveGeneratedWorkflow(wf);
     addRecentActivity({ type: 'workflow_generated', title: `Converted outcome to workflow: ${wf.workflow_name}`, route: `/session/${wf.id}` });
     logEvent('completed_action', 'Converted active outcome to workflow.');
+    awardXP(15, 'Workflow created');
     pushToast('Workflow created from outcome.');
     router.push(`/session/${wf.id}`);
+  }
+
+  function openLessonModal(sourceId: string) {
+    const source = state.outcomes.find((o) => o.id === sourceId);
+    setLessonSourceId(sourceId);
+    setLessonDraft({
+      id: crypto.randomUUID(),
+      lesson_title: source ? `Lesson: ${source.title}` : 'New lesson',
+      summary: source?.why_it_matters || '',
+      mistake_or_blocker: '',
+      principle: '',
+      next_time_action: '',
+      source_type: 'daily_outcome',
+      source_id: sourceId,
+      created_at: nowIso()
+    });
+  }
+
+  function saveLesson() {
+    if (!lessonSourceId) return;
+    updateState((prev) => ({ ...prev, lessons: [lessonDraft, ...(prev.lessons || [])].slice(0, 50) }));
+    setLessonSourceId(null);
+    awardXP(10, 'Lesson captured');
+    pushToast('Lesson saved.');
   }
 
   async function sendCoachMessage(promptOverride?: string) {
@@ -474,6 +566,15 @@ export default function DailyPage() {
     logEvent('report_generated', 'Daily report generated.');
     void trackProductEvent('daily_report_generated', '/daily', { report_id: report.id, execution_score: report.execution_score });
     addRecentActivity({ type: 'daily_report_generated', title: 'Daily report generated', route: '/daily' });
+    const completedCount = completed.length;
+    if (completedCount > 0) {
+      updateState((prev) => {
+        const streak = (prev.streak || 0) + 1;
+        return { ...prev, streak, best_streak: Math.max(prev.best_streak || 0, streak) };
+      });
+      pushToast('Streak protected');
+    }
+    awardXP(25, 'Daily debrief complete');
     pushToast('Day closed with report.');
   }
 
@@ -493,6 +594,7 @@ export default function DailyPage() {
     const existing = existingRaw ? JSON.parse(existingRaw) : buildInitialState(nextDay.toISOString().slice(0, 10));
     localStorage.setItem(nextKey, JSON.stringify({ ...existing, outcomes: carry }));
     logEvent('carry_over', `Carried ${carry.length} outcomes to tomorrow.`);
+    awardXP(10, 'Carry forward');
     pushToast('Unfinished outcomes carried to tomorrow.');
   }
 
@@ -514,6 +616,20 @@ export default function DailyPage() {
       }
     }, 0);
   }, []);
+  const loopStep: 'plan' | 'focus' | 'prove' | 'reflect' | 'level' =
+    !state.outcomes.length ? 'plan'
+      : state.active_focus_block?.status === 'active' ? 'focus'
+        : (state.proof_count_today || 0) > 0 && !state.report ? 'prove'
+          : state.report ? 'level'
+            : 'reflect';
+  const coachRecommendation = state.coach_messages.filter((m) => m.role === 'assistant').slice(-1)[0]?.ai;
+  const executionScore = Math.min(100, ((completedToday * 25) + Math.min(30, focusMinutesToday) + Math.min(20, (state.proof_count_today || 0) * 10)));
+  const challenges = [
+    { id: 'focus', title: 'Complete one 25-minute focus block', reward: 15, done: focusMinutesToday >= 25, action: () => pickBestOutcome() },
+    { id: 'proof', title: 'Log proof before noon', reward: 15, done: (state.proof_count_today || 0) > 0, action: () => state.active_outcome_id ? logProof(state.active_outcome_id, 'Challenge proof note') : pushToast('No active outcome') },
+    { id: 'workflow', title: 'Turn one outcome into a workflow', reward: 20, done: state.events.some((e) => e.content.includes('Converted active outcome')), action: () => state.active_outcome_id ? void convertOutcomeToWorkflow(state.active_outcome_id) : pushToast('Pick an outcome first') },
+    { id: 'debrief', title: 'Close the day with a debrief', reward: 25, done: Boolean(state.report), action: () => generateReport() }
+  ];
 
   function safeAction(label: string, handler?: () => void) {
     if (!handler) {
@@ -532,7 +648,7 @@ export default function DailyPage() {
             <p className="badge mb-2">Today&apos;s execution cockpit</p>
             <h1 className="text-3xl font-black">Daily Command Center</h1>
             <p className="mt-1 text-sm text-slate-400">{state.date} · Status: {state.status}</p>
-            <p className="mt-1 text-xs text-slate-500">Streak: {dailyStreak} · Completed today: {completedToday} · Focus minutes: {focusMinutesToday}</p>
+            <p className="mt-1 text-xs text-slate-500">Execution streak: {state.streak ?? dailyStreak} · Completed today: {completedToday} · Focus minutes: {focusMinutesToday}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="badge">AI: {aiMode === 'openai' ? 'OpenAI' : 'Mock'}</span>
@@ -546,17 +662,25 @@ export default function DailyPage() {
             <button key={tab} className={`btn-secondary btn-sm ${mobileTab === tab ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab(tab)}>{tab[0].toUpperCase() + tab.slice(1)}</button>
           ))}
         </div>
-
-        <div className="card mb-4 p-4">
-          <p className="text-xs uppercase tracking-widest text-slate-500">Daily value loop</p>
-          <p className="mt-1 text-sm text-slate-300">Plan -&gt; Focus -&gt; Proof -&gt; Report -&gt; Carry Forward</p>
+        <div className="mb-4 grid gap-3">
+          <DailyLoopProgress currentStep={loopStep} />
+          <DailyScorecard
+            executionScore={executionScore}
+            focusMinutes={focusMinutesToday}
+            outcomesCompleted={completedToday}
+            outcomesTotal={Math.max(1, state.outcomes.length)}
+            proofLogged={state.proof_count_today || 0}
+            streak={state.streak ?? dailyStreak}
+            xpToday={state.xp_today || 0}
+            level={state.level || 1}
+          />
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr_1fr]">
           <div className={`${mobileTab === 'outcomes' ? 'block' : 'hidden'} lg:block`}>
             <div className="card p-5">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Today&apos;s outcomes</h2>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Today&apos;s Outcomes</h2>
                 <div className="flex gap-2">
                   <button className="btn-secondary btn-sm" onClick={safeAction('Plan today', () => setShowPlanModal(true))}>Plan today</button>
                   <button className="btn-ghost btn-sm" onClick={safeAction('Add outcome', () => addOutcome())}>Add outcome</button>
@@ -564,7 +688,7 @@ export default function DailyPage() {
               </div>
               {!state.outcomes.length ? (
                 <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
-                  <p className="font-semibold text-white">Start by choosing today&apos;s top 3 outcomes.</p>
+                  <p className="font-semibold text-white">What are you trying to move forward today?</p>
                   <p className="mt-1 text-sm text-slate-400">Pick outcomes, not chores. A strong outcome has visible proof by end of day.</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button className="btn-secondary btn-sm" onClick={safeAction('Build something', () => { setDayType('build'); addOutcome('Ship one useful improvement'); })}>Build something</button>
@@ -590,7 +714,7 @@ export default function DailyPage() {
                         </div>
                         <p className="text-sm text-slate-400">{outcome.why_it_matters}</p>
                         <p className="text-xs text-slate-500">Status: {isActive ? 'active' : outcome.status} · Est {outcome.estimated_minutes}m · Actual {outcome.actual_minutes}m</p>
-                        <p className="text-xs text-slate-500">Proof: {outcome.proof_required} {outcome.proof_provided ? `· Logged: ${outcome.proof_provided}` : ''}</p>
+                        <p className="text-xs text-slate-500">Evidence: {outcome.proof_required} {outcome.proof_provided ? `· Logged: ${outcome.proof_provided}` : ''}</p>
                         <p className="text-xs text-slate-500">Quality: {quality}</p>
                         {(quality === 'Needs clarity' || quality === 'Too broad' || quality === 'Not proofable') && (
                           <button className="btn-ghost btn-sm mt-1" onClick={safeAction('Refine outcome', () => refineOutcome(outcome.id))}>Refine outcome</button>
@@ -600,7 +724,8 @@ export default function DailyPage() {
                           {outcome.status !== 'done' && <button className="btn-primary btn-sm" onClick={safeAction('Focus', () => startFocus(outcome.id))}>Focus</button>}
                           {outcome.status !== 'done' && <button className="btn-secondary btn-sm" onClick={safeAction('Done', () => completeOutcome(outcome.id))}>Done</button>}
                           {outcome.status !== 'done' && <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(outcome.id))}>Blocked</button>}
-                          <button className="btn-ghost btn-sm" onClick={safeAction('Log proof', () => logProof(outcome.id, prompt('Proof note') || ''))}>Log proof</button>
+                          <button className="btn-ghost btn-sm" onClick={safeAction('Log proof', () => logProof(outcome.id, prompt('Evidence note') || ''))}>Log evidence</button>
+                          {outcome.status === 'done' && <button className="btn-ghost btn-sm" onClick={safeAction('Turn this into a lesson', () => openLessonModal(outcome.id))}>Turn this into a lesson</button>}
                           <button className="btn-ghost btn-sm" onClick={safeAction('Edit', () => openEditOutcome(outcome.id))}>Edit</button>
                           <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => void convertOutcomeToWorkflow(outcome.id))}>Turn into workflow</button>
                         </div>
@@ -615,7 +740,7 @@ export default function DailyPage() {
 
           <div className={`${mobileTab === 'focus' ? 'block' : 'hidden'} lg:block`}>
             <div className="card p-5">
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Active Focus</h2>
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Current Mission</h2>
               {!activeFocus || activeFocus.status !== 'active' ? (
                 <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
                   <p className="font-semibold text-white">No focus block running</p>
@@ -636,7 +761,7 @@ export default function DailyPage() {
                   <p><span className="text-slate-500">Checkpoint:</span> {new Date(activeFocus.last_progress_at).toLocaleTimeString()}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button className="btn-secondary btn-sm" onClick={safeAction('Complete action', () => { logEvent('completed_action', 'Focus action completed.'); pushToast('Focus action logged.'); })}>Complete action</button>
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => logProof(activeFocus.outcome_id, prompt('Proof note') || 'Proof logged'))}>Log proof</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => logProof(activeFocus.outcome_id, prompt('Evidence note') || 'Evidence logged'))}>Log evidence</button>
                     <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(activeFocus.outcome_id))}>Blocked</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('End focus', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'complete', ended_at: nowIso() } : null, status: 'planning', active_outcome_id: null })); logEvent('completed_action', 'Focus ended.'); })}>End focus</button>
@@ -650,6 +775,12 @@ export default function DailyPage() {
           <div className={`${mobileTab === 'coach' ? 'block' : 'hidden'} lg:block`}>
             <div className="card flex h-[520px] sm:h-[620px] flex-col p-5">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Daily Copilot</h2>
+              <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <p className="text-xs uppercase tracking-wider text-amber-200">Coach recommendation</p>
+                <p className="font-semibold text-white">{coachRecommendation?.next_action || 'Start one focus block on your highest-leverage outcome.'}</p>
+                <p className="text-xs text-slate-300">Why: {coachRecommendation?.priority_reason || 'Single-task execution compounds faster than scattered effort.'}</p>
+                <p className="text-xs text-slate-300">Timebox: {coachRecommendation?.focus_minutes || 25}m · Evidence: {coachRecommendation?.proof_needed || 'One visible artifact'}</p>
+              </div>
               <div className="mb-3 flex flex-wrap gap-2">
                 <button className="btn-secondary btn-sm" onClick={safeAction('Pick best next move', () => void sendCoachMessage('Based on daily state, pick best next move and why.'))}>Pick best next move</button>
                 <button className="btn-ghost btn-sm" onClick={safeAction('Make it tiny', () => void sendCoachMessage('Make the active outcome tiny: one 5-minute action.'))}>Make it tiny</button>
@@ -678,6 +809,20 @@ export default function DailyPage() {
                 <button className="btn-primary" onClick={safeAction('Send coach message', () => void sendCoachMessage())}>Send</button>
               </div>
             </div>
+            <div className="card mt-4 p-4">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Daily challenges</h3>
+              <div className="mt-2 space-y-2">
+                {challenges.map((challenge) => (
+                  <div key={challenge.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-2 text-sm">
+                    <p className="font-semibold">{challenge.title}</p>
+                    <p className="text-xs text-slate-500">Reward: +{challenge.reward} XP</p>
+                    <button className="btn-ghost btn-sm mt-1" disabled={challenge.done} onClick={() => challenge.action()}>
+                      {challenge.done ? 'Completed' : 'Start'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -698,7 +843,7 @@ export default function DailyPage() {
 
         <div className={`${mobileTab === 'report' ? 'block' : 'hidden'} mt-5 lg:block`}>
           <div className="card p-5">
-            <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Close the day</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Daily Debrief</h2>
             {state.report ? (
               <>
                 <p className="text-sm text-slate-300"><span className="text-slate-500">Summary:</span> {state.report.summary}</p>
@@ -710,11 +855,18 @@ export default function DailyPage() {
                 <p className="text-sm text-slate-300"><span className="text-slate-500">Execution score:</span> {state.report.execution_score}/10</p>
                 <p className="text-sm text-slate-300"><span className="text-slate-500">Money score:</span> {state.report.money_score}/10</p>
                 <p className="text-sm text-slate-300"><span className="text-slate-500">Tomorrow first action:</span> {state.report.tomorrow_first_action}</p>
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  <textarea className="input min-h-16" placeholder="What moved forward today?" value={reflectionDraft.moved_forward} onChange={(e) => setReflectionDraft((p) => ({ ...p, moved_forward: e.target.value }))} />
+                  <textarea className="input min-h-16" placeholder="What created evidence?" value={reflectionDraft.proof_created} onChange={(e) => setReflectionDraft((p) => ({ ...p, proof_created: e.target.value }))} />
+                  <textarea className="input min-h-16" placeholder="What leaked time?" value={reflectionDraft.time_leak} onChange={(e) => setReflectionDraft((p) => ({ ...p, time_leak: e.target.value }))} />
+                  <textarea className="input min-h-16" placeholder="What should be repeated?" value={reflectionDraft.repeat} onChange={(e) => setReflectionDraft((p) => ({ ...p, repeat: e.target.value }))} />
+                </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button className="btn-secondary btn-sm" onClick={safeAction('Copy report', () => navigator.clipboard.writeText(JSON.stringify(state.report, null, 2)))}>Copy report</button>
                   <button className="btn-secondary btn-sm" onClick={safeAction('Carry unfinished to tomorrow', carryForward)}>Carry unfinished to tomorrow</button>
                   <button className="btn-ghost btn-sm" onClick={safeAction('Start tomorrow from this', carryForward)}>Start tomorrow from this</button>
                   <button className="btn-ghost btn-sm" onClick={safeAction('Save report', () => pushToast('Report saved locally.'))}>Save report</button>
+                  <button className="btn-ghost btn-sm" onClick={safeAction('Save lesson', () => state.outcomes.find((o) => o.status === 'done') ? openLessonModal(state.outcomes.find((o) => o.status === 'done')!.id) : pushToast('Complete one outcome to save lesson'))}>Save lesson</button>
                 </div>
               </>
             ) : (
@@ -726,6 +878,17 @@ export default function DailyPage() {
             )}
           </div>
         </div>
+
+        {!!state.lessons?.length && (
+          <div className="mt-5 card p-5">
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Lessons captured today</h2>
+            <div className="grid gap-2 md:grid-cols-2">
+              {state.lessons.slice(0, 4).map((lesson) => (
+                <LearningCard key={lesson.id} lesson={lesson} />
+              ))}
+            </div>
+          </div>
+        )}
 
         {showPlanModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowPlanModal(false)}>
@@ -791,6 +954,23 @@ export default function DailyPage() {
               <div className="mt-3 flex gap-2">
                 <button className="btn-primary" onClick={safeAction('Save blocker', saveBlockedOutcome)}>Save blocker</button>
                 <button className="btn-ghost" onClick={() => setBlockerModalOutcomeId(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {lessonSourceId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setLessonSourceId(null)}>
+            <div className="card w-full max-w-xl p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">Turn this into a lesson</h2>
+              <input className="input mt-3" placeholder="Lesson title" value={lessonDraft.lesson_title} onChange={(e) => setLessonDraft((p) => ({ ...p, lesson_title: e.target.value }))} />
+              <textarea className="input mt-2 min-h-16" placeholder="What I did / learned" value={lessonDraft.summary} onChange={(e) => setLessonDraft((p) => ({ ...p, summary: e.target.value }))} />
+              <textarea className="input mt-2 min-h-16" placeholder="Mistake or blocker to avoid" value={lessonDraft.mistake_or_blocker} onChange={(e) => setLessonDraft((p) => ({ ...p, mistake_or_blocker: e.target.value }))} />
+              <input className="input mt-2" placeholder="Repeatable rule" value={lessonDraft.principle} onChange={(e) => setLessonDraft((p) => ({ ...p, principle: e.target.value }))} />
+              <input className="input mt-2" placeholder="Next time checklist action" value={lessonDraft.next_time_action} onChange={(e) => setLessonDraft((p) => ({ ...p, next_time_action: e.target.value }))} />
+              <div className="mt-3 flex gap-2">
+                <button className="btn-primary" onClick={safeAction('Save lesson', saveLesson)}>Save lesson</button>
+                <button className="btn-ghost" onClick={() => setLessonSourceId(null)}>Cancel</button>
               </div>
             </div>
           </div>
