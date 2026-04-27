@@ -4,14 +4,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { DailyLoopProgress } from '@/components/DailyLoopProgress';
 import { DailyScorecard } from '@/components/DailyScorecard';
+import { DailyCoachCard } from '@/components/DailyCoachCard';
 import { LearningCard } from '@/components/LearningCard';
+import { ProofModal } from '@/components/ProofModal';
+import { RewardMoment } from '@/components/RewardMoment';
 import { Nav } from '@/components/Nav';
 import { useToast } from '@/components/ToastProvider';
 import { addRecentActivity } from '@/lib/activity';
 import { trackProductEvent } from '@/lib/productEvents';
 import { getDailyStorageKey, getReportsStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
-import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyEvent, DailyOutcome, DailyReport, FocusBlock, LearningCard as LearningCardType, Workflow } from '@/types/workflow';
+import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, Workflow } from '@/types/workflow';
 
 type DayType = NonNullable<DailyCommandState['selected_day_type']>;
 type DailyTab = 'outcomes' | 'focus' | 'coach' | 'timeline' | 'report';
@@ -119,6 +122,12 @@ export default function DailyPage() {
   const [blockerNote, setBlockerNote] = useState('');
   const [showAllEvents, setShowAllEvents] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [proofTargetOutcomeId, setProofTargetOutcomeId] = useState<string | null>(null);
+  const [showReward, setShowReward] = useState(false);
+  const [rewardData, setRewardData] = useState({ title: '', xp: 0, copy: '', next: '' });
+  const [showCompleteWithoutProof, setShowCompleteWithoutProof] = useState<string | null>(null);
+  const [showFocusCompleteModal, setShowFocusCompleteModal] = useState(false);
+  const [copilotMode, setCopilotMode] = useState<'coach' | 'action'>('coach');
   const [lessonSourceId, setLessonSourceId] = useState<string | null>(null);
   const [lessonDraft, setLessonDraft] = useState<LearningCardType>({
     id: '',
@@ -154,6 +163,7 @@ export default function DailyPage() {
           streak: parsed?.streak ?? 0,
           best_streak: parsed?.best_streak ?? 0,
           proof_count_today: parsed?.proof_count_today ?? 0,
+          proof_items: Array.isArray(parsed?.proof_items) ? parsed.proof_items : [],
           lessons: Array.isArray(parsed?.lessons) ? parsed.lessons : []
         });
         if (parsed?.selected_day_type) {
@@ -203,6 +213,10 @@ export default function DailyPage() {
   }, [state.active_focus_block?.id, state.active_focus_block?.status]);
 
   useEffect(() => {
+    if (state.active_focus_block?.status === 'active') setCopilotMode('action');
+  }, [state.active_focus_block?.status]);
+
+  useEffect(() => {
     function onAddOutcome() {
       addOutcome();
     }
@@ -216,8 +230,7 @@ export default function DailyPage() {
       generateReport();
     }
     function onLogProof() {
-      if (state.active_outcome_id) logProof(state.active_outcome_id, 'Quick proof from command palette.');
-      else pushToast('No active outcome for proof.');
+      openProofModal(state.active_outcome_id);
     }
     function onSaveLesson() {
       if (state.active_outcome_id) openLessonModal(state.active_outcome_id);
@@ -273,6 +286,9 @@ export default function DailyPage() {
       return { ...prev, total_xp: total, xp_today: (prev.xp_today || 0) + amount, level };
     });
     pushToast(`+${amount} XP ${reason}`);
+    setRewardData({ title: reason, xp: amount, copy: 'Progress locked in with proof-backed execution.', next: 'Take the next smallest action now.' });
+    setShowReward(true);
+    logEvent('completed_action', `Reward earned: +${amount} XP (${reason})`);
   }
 
   function makeOutcome(title: string, idx: number): DailyOutcome {
@@ -461,7 +477,7 @@ export default function DailyPage() {
     const target = state.outcomes.find((o) => o.id === id);
     if (!target) return;
     if (!target.proof_provided.trim()) {
-      pushToast('Log proof before marking done.');
+      setShowCompleteWithoutProof(id);
       return;
     }
     updateState((prev) => ({
@@ -473,6 +489,10 @@ export default function DailyPage() {
     logEvent('completed_outcome', `Outcome completed: ${target.title}`);
     addRecentActivity({ type: 'daily_outcome_completed', title: target.title, route: '/daily' });
     awardXP(20, 'Outcome complete');
+    if (state.outcomes.filter((o) => o.status === 'done').length + 1 >= state.outcomes.length && state.outcomes.length > 0) {
+      setRewardData({ title: 'Today\'s outcomes complete.', xp: 30, copy: 'You finished all planned outcomes.', next: 'Close the day with a debrief.' });
+      setShowReward(true);
+    }
     pushToast('Outcome marked done.');
   }
 
@@ -504,6 +524,26 @@ export default function DailyPage() {
     updateState((prev) => ({ ...prev, proof_count_today: (prev.proof_count_today || 0) + 1 }));
     awardXP(15, 'Evidence logged');
     pushToast('Proof logged.');
+  }
+
+  function openProofModal(outcomeId?: string | null) {
+    const targetId = outcomeId || state.active_outcome_id;
+    if (!targetId) return pushToast('Pick an outcome first.');
+    setProofTargetOutcomeId(targetId);
+  }
+
+  function saveProofItem(item: DailyProofItem) {
+    const proofText = item.note || item.file_name || 'Proof added';
+    updateState((prev) => ({
+      ...prev,
+      proof_items: [item, ...(prev.proof_items || [])].slice(0, 200),
+      outcomes: prev.outcomes.map((o) => o.id === item.outcome_id ? { ...o, proof_provided: proofText, updated_at: nowIso() } : o)
+    }));
+    logEvent('proof_added', 'Proof logged');
+    void trackProductEvent('proof_logged', '/daily', { outcome_id: item.outcome_id, type: item.type });
+    updateState((prev) => ({ ...prev, proof_count_today: (prev.proof_count_today || 0) + 1 }));
+    awardXP(15, 'Proof logged');
+    setProofTargetOutcomeId(null);
   }
 
   function refineOutcome(id: string) {
@@ -606,6 +646,7 @@ export default function DailyPage() {
         events: state.events,
         report: state.report,
         xp_state: { total_xp: state.total_xp || 0, xp_today: state.xp_today || 0, streak: state.streak || 0, level: state.level || 1 },
+        copilot_mode: copilotMode,
         fullState: state
       })
     });
@@ -619,6 +660,14 @@ export default function DailyPage() {
       ai
     };
     updateState((prev) => ({ ...prev, coach_messages: [...prev.coach_messages, assistant].slice(-80) }));
+  }
+
+  function runCoachAction(action: 'start_focus' | 'log_proof' | 'mark_done' | 'create_workflow' | 'close_day' | 'none') {
+    if (action === 'start_focus') return pickBestOutcome();
+    if (action === 'log_proof') return openProofModal(state.active_outcome_id);
+    if (action === 'mark_done' && state.active_outcome_id) return completeOutcome(state.active_outcome_id);
+    if (action === 'create_workflow' && state.active_outcome_id) return void convertOutcomeToWorkflow(state.active_outcome_id);
+    if (action === 'close_day') return generateReport();
   }
 
   function generateReport() {
@@ -814,7 +863,7 @@ export default function DailyPage() {
                           {outcome.status !== 'done' && <button className="btn-primary btn-sm" onClick={safeAction('Focus', () => startFocus(outcome.id))}>Focus</button>}
                           {outcome.status !== 'done' && <button className="btn-secondary btn-sm" onClick={safeAction('Done', () => completeOutcome(outcome.id))}>Done</button>}
                           {outcome.status !== 'done' && <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(outcome.id))}>Blocked</button>}
-                          <button className="btn-ghost btn-sm" onClick={safeAction('Log proof', () => logProof(outcome.id, prompt('Evidence note') || ''))}>Log evidence</button>
+                          <button className="btn-ghost btn-sm" onClick={safeAction('Log proof', () => openProofModal(outcome.id))}>Log proof</button>
                           {outcome.status === 'done' && <button className="btn-ghost btn-sm" onClick={safeAction('Turn this into a lesson', () => openLessonModal(outcome.id))}>Turn this into a lesson</button>}
                           <button className="btn-ghost btn-sm" onClick={safeAction('Edit', () => openEditOutcome(outcome.id))}>Edit</button>
                           <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => void convertOutcomeToWorkflow(outcome.id))}>Turn into workflow</button>
@@ -850,8 +899,8 @@ export default function DailyPage() {
                   <p><span className="text-slate-500">Drift:</span> {activeFocus.drift_score > 5 ? 'High' : 'Stable'}</p>
                   <p><span className="text-slate-500">Checkpoint:</span> {new Date(activeFocus.last_progress_at).toLocaleTimeString()}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Complete action', () => { logEvent('completed_action', 'Focus action completed.'); pushToast('Focus action logged.'); })}>Complete action</button>
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => logProof(activeFocus.outcome_id, prompt('Evidence note') || 'Evidence logged'))}>Log evidence</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Complete action', () => setShowFocusCompleteModal(true))}>Complete action</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeFocus.outcome_id))}>Log proof</button>
                     <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(activeFocus.outcome_id))}>Blocked</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('End focus', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'complete', ended_at: nowIso() } : null, status: 'planning', active_outcome_id: null })); logEvent('completed_action', 'Focus ended.'); })}>End focus</button>
@@ -865,12 +914,11 @@ export default function DailyPage() {
           <div className={`${mobileTab === 'coach' ? 'block' : 'hidden'} lg:block`}>
             <div className="card flex h-[520px] sm:h-[620px] flex-col p-5">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Daily Copilot</h2>
-              <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                <p className="text-xs uppercase tracking-wider text-amber-200">Coach recommendation</p>
-                <p className="font-semibold text-white">{coachRecommendation?.next_action || 'Start one focus block on your highest-leverage outcome.'}</p>
-                <p className="text-xs text-slate-300">Why: {coachRecommendation?.priority_reason || 'Single-task execution compounds faster than scattered effort.'}</p>
-                <p className="text-xs text-slate-300">Timebox: {coachRecommendation?.focus_minutes || 25}m · Evidence: {coachRecommendation?.proof_needed || 'One visible artifact'}</p>
+              <div className="mb-2 flex gap-2">
+                <button className={`btn-secondary btn-sm ${copilotMode === 'coach' ? 'border-amber-400 text-amber-100' : ''}`} onClick={() => setCopilotMode('coach')}>Coach</button>
+                <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-100' : ''}`} onClick={() => setCopilotMode('action')}>Action</button>
               </div>
+              <DailyCoachCard ai={coachRecommendation} onAction={runCoachAction} />
               <div className="mb-3 flex flex-wrap gap-2">
                 <button className="btn-secondary btn-sm" onClick={safeAction('Pick best next move', () => void sendCoachMessage('Based on daily state, pick best next move and why.'))}>Pick best next move</button>
                 <button className="btn-ghost btn-sm" onClick={safeAction('Make it tiny', () => void sendCoachMessage('Make the active outcome tiny: one 5-minute action.'))}>Make it tiny</button>
@@ -881,14 +929,9 @@ export default function DailyPage() {
                 {state.coach_messages.map((m) => (
                   <div key={m.id} className={`rounded-xl p-2 text-sm ${m.role === 'assistant' ? 'bg-slate-800/80 text-slate-100' : 'bg-amber-400/10 text-amber-100'}`}>
                     <p className="text-xs uppercase tracking-widest text-slate-500">{m.role}</p>
-                    <p>{m.content}</p>
+                    <p className="line-clamp-3">{m.content}</p>
                     {m.ai && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        <span className="text-xs text-slate-400">Next: {m.ai.next_action}</span>
-                        {m.ai.recommended_outcome_id && <button className="btn-ghost btn-sm" onClick={safeAction('Start recommended focus', () => startFocus(m.ai!.recommended_outcome_id!))}>Start recommended focus</button>}
-                        {state.active_outcome_id && <button className="btn-ghost btn-sm" onClick={safeAction('Mark active done', () => completeOutcome(state.active_outcome_id!))}>Mark active done</button>}
-                        {state.active_outcome_id && <button className="btn-ghost btn-sm" onClick={safeAction('Create workflow from this', () => void convertOutcomeToWorkflow(state.active_outcome_id!))}>Create workflow from this</button>}
-                      </div>
+                      <DailyCoachCard ai={m.ai} onAction={runCoachAction} />
                     )}
                   </div>
                 ))}
@@ -926,6 +969,8 @@ export default function DailyPage() {
                     event.type === 'generated_top3' ? 'Plan created'
                       : event.type === 'created_outcome' ? 'Outcome added'
                       : event.type === 'started_focus' ? 'Focus started'
+                      : event.type === 'completed_action' && event.content.includes('Reward earned') ? 'Reward earned'
+                      : event.type === 'completed_action' ? 'Focus action completed'
                       : event.type === 'proof_added' ? 'Evidence logged'
                       : event.type === 'completed_outcome' ? 'Outcome completed'
                       : event.type === 'report_generated' ? 'Day closed'
@@ -1139,6 +1184,47 @@ export default function DailyPage() {
               <div className="mt-3 flex gap-2">
                 <button className="btn-danger" onClick={() => { setState(buildInitialState(today)); setShowResetConfirm(false); pushToast('Day reset.'); }}>Reset day</button>
                 <button className="btn-ghost" onClick={() => setShowResetConfirm(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+        <ProofModal
+          open={Boolean(proofTargetOutcomeId)}
+          outcomeId={proofTargetOutcomeId || ''}
+          outcomeTitle={state.outcomes.find((o) => o.id === proofTargetOutcomeId)?.title || 'Active outcome'}
+          onSave={saveProofItem}
+          onClose={() => setProofTargetOutcomeId(null)}
+        />
+        <RewardMoment
+          open={showReward}
+          title={rewardData.title}
+          xp={rewardData.xp}
+          copy={rewardData.copy}
+          next={rewardData.next}
+          onClose={() => setShowReward(false)}
+        />
+        {showCompleteWithoutProof && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowCompleteWithoutProof(null)}>
+            <div className="card w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">Complete without proof?</h2>
+              <p className="mt-1 text-sm text-slate-400">This outcome has no proof yet.</p>
+              <div className="mt-3 flex gap-2">
+                <button className="btn-secondary" onClick={() => { openProofModal(showCompleteWithoutProof); setShowCompleteWithoutProof(null); }}>Log proof first</button>
+                <button className="btn-primary" onClick={() => { const id = showCompleteWithoutProof; setShowCompleteWithoutProof(null); if (id) { updateState((prev) => ({ ...prev, outcomes: prev.outcomes.map((o) => o.id === id ? { ...o, status: 'done', completed_at: nowIso(), updated_at: nowIso() } : o) })); awardXP(20, 'Outcome complete'); } }}>Complete anyway</button>
+                <button className="btn-ghost" onClick={() => setShowCompleteWithoutProof(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showFocusCompleteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowFocusCompleteModal(false)}>
+            <div className="card w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">Focus action completed</h2>
+              <p className="text-sm text-slate-400">What changed? Capture proof or move the mission forward.</p>
+              <div className="mt-3 flex gap-2">
+                <button className="btn-secondary" onClick={() => { setShowFocusCompleteModal(false); openProofModal(state.active_outcome_id); }}>Log proof</button>
+                <button className="btn-primary" onClick={() => { setShowFocusCompleteModal(false); if (state.active_outcome_id) completeOutcome(state.active_outcome_id); }}>Mark outcome done</button>
+                <button className="btn-ghost" onClick={() => setShowFocusCompleteModal(false)}>Continue focus</button>
               </div>
             </div>
           </div>

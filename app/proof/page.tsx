@@ -11,6 +11,8 @@ type VaultItem = {
   title: string;
   note: string;
   status: string;
+  data_url?: string;
+  stored_locally?: boolean;
 };
 
 export default function ProofPage() {
@@ -30,6 +32,18 @@ export default function ProofPage() {
             if (outcome?.status === 'done') {
               next.push({ id: `${outcome.id}-done`, date: outcome.completed_at || outcome.updated_at || new Date().toISOString(), type: 'daily_outcome', title: `Completed: ${outcome.title}`, note: 'Outcome completed', status: 'done' });
             }
+          });
+          (parsed?.proof_items || []).forEach((proof: any) => {
+            next.push({
+              id: proof.id,
+              date: proof.created_at || new Date().toISOString(),
+              type: 'daily_outcome',
+              title: `Proof: ${parsed?.outcomes?.find((o: any) => o.id === proof.outcome_id)?.title || 'Outcome'}`,
+              note: proof.note || proof.file_name || 'Proof item',
+              status: proof.type || 'proof',
+              data_url: proof.data_url,
+              stored_locally: true
+            });
           });
           (parsed?.lessons || []).forEach((lesson: any) => {
             next.push({ id: lesson.id, date: lesson.created_at || new Date().toISOString(), type: 'lesson', title: lesson.lesson_title, note: lesson.summary, status: 'captured' });
@@ -89,6 +103,8 @@ export default function ProofPage() {
                 <p className="font-semibold">{item.title}</p>
                 <p className="text-xs text-slate-500">{new Date(item.date).toLocaleString()} · {item.type} · {item.status}</p>
                 <p className="text-slate-300">{item.note}</p>
+                {item.data_url && <img src={item.data_url} alt="proof preview" className="mt-2 max-h-36 rounded border border-slate-700 object-contain" />}
+                {item.stored_locally && <p className="mt-1 text-xs text-slate-500">Stored locally for now</p>}
               </div>
             ))}
             {!filtered.length && <p className="text-sm text-slate-500">No evidence yet. Log proof and close your day to build the vault.</p>}

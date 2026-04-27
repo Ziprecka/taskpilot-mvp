@@ -226,6 +226,13 @@ export interface DailyReport {
 
 export interface DailyAIResponse {
   direct_answer: string;
+  headline?: string;
+  do_now?: string;
+  steps?: string[];
+  why_it_matters?: string;
+  avoid?: string;
+  timebox_minutes?: number;
+  action_buttons?: Array<{ label: string; action: 'start_focus' | 'log_proof' | 'mark_done' | 'create_workflow' | 'close_day' | 'none' }>;
   current_state_read?: string;
   recommended_outcome_id?: string | null;
   next_action: string;
@@ -267,9 +274,22 @@ export type DailyCommandState = {
   streak?: number;
   best_streak?: number;
   proof_count_today?: number;
+  proof_items?: DailyProofItem[];
   lessons?: LearningCard[];
   last_saved_at: string;
 };
+
+export interface DailyProofItem {
+  id: string;
+  outcome_id: string;
+  type: 'screenshot' | 'photo' | 'link' | 'text' | 'file';
+  note: string;
+  file_name?: string;
+  file_type?: string;
+  file_size?: number;
+  data_url?: string;
+  created_at: string;
+}
 
 export interface LearningCard {
   id: string;

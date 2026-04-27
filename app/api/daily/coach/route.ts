@@ -27,6 +27,13 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
   if (lower.includes('what should i do next') || lower.includes('next move')) {
     if (!outcomes.length) {
       return {
+      headline: 'Plan your top 3 now',
+      do_now: 'Choose day type and generate your plan.',
+      steps: ['Pick day type', 'Generate 3 outcomes', 'Start first focus block'],
+      why_it_matters: 'A clear plan removes drift.',
+      avoid: 'Do not start random tasks first.',
+      timebox_minutes: 10,
+      action_buttons: [{ label: 'Plan today', action: 'none' }],
         direct_answer: 'You do not have a plan yet. Start by planning today.',
         next_action: 'Create a 3-outcome plan for your selected day type.',
         proof_needed: 'Three outcomes with first action and evidence requirement.',
@@ -38,6 +45,13 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
     }
     if (focus?.status === 'active') {
       return {
+        headline: 'Finish current mission first',
+        do_now: 'Complete current action and log proof.',
+        steps: ['Do one action', 'Log proof', 'Decide done or continue'],
+        why_it_matters: 'Closing loops compounds execution speed.',
+        avoid: 'Do not switch tasks mid-focus.',
+        timebox_minutes: 15,
+        action_buttons: [{ label: 'Log proof', action: 'log_proof' }, { label: 'Mark done', action: 'mark_done' }],
         direct_answer: `Finish the current mission: ${focus.title}.`,
         next_action: 'Complete current action and log evidence.',
         proof_needed: 'One evidence note for this focus block.',
@@ -49,6 +63,13 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
     }
     if (reportDone) {
       return {
+        headline: 'Close and carry forward',
+        do_now: 'Carry forward unfinished outcomes.',
+        steps: ['Review unfinished', 'Carry forward', 'Set tomorrow first move'],
+        why_it_matters: 'Tomorrow starts faster with clarity.',
+        avoid: 'Do not end day without next move.',
+        timebox_minutes: 10,
+        action_buttons: [{ label: 'Close day', action: 'close_day' }],
         direct_answer: 'Your debrief is complete. Carry forward unfinished work or plan tomorrow.',
         next_action: 'Carry forward unfinished outcomes and define tomorrow first move.',
         proof_needed: 'Tomorrow first action defined.',
@@ -77,6 +98,13 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
         ? ensureScopedOutcomes(['Ship one scoped feature', 'Fix one visible UX issue', 'Record a demo proving the improvement'])
         : generated;
     return {
+      headline: 'Top 3 ready',
+      do_now: 'Pick #1 and start a 25-minute block.',
+      steps: ['Pick highest leverage', 'Start focus', 'Log proof after first action'],
+      why_it_matters: 'Action beats planning drift.',
+      avoid: 'Do not over-edit your plan.',
+      timebox_minutes: 25,
+      action_buttons: [{ label: 'Start focus', action: 'start_focus' }],
       direct_answer: 'Here is a focused top 3 for your day.',
       next_action: 'Pick #1 and start a 25-minute focus block now.',
       proof_needed: 'Visible output for each outcome by day end.',
@@ -89,6 +117,13 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
   }
   if (lower.includes('5 minute') || lower.includes('reduce')) {
     return {
+      headline: 'Make it tiny now',
+      do_now: focus?.title ? `Do first tiny action for "${focus.title}".` : 'Do one tiny action now.',
+      steps: ['Open task', 'Do 1 action', 'Log quick proof'],
+      why_it_matters: 'Tiny actions break inertia.',
+      avoid: 'Do not plan for longer than 2 minutes.',
+      timebox_minutes: 5,
+      action_buttons: [{ label: 'Log proof', action: 'log_proof' }],
       direct_answer: focus?.title ? `5-minute version: write the first concrete output for "${focus.title}".` : '5-minute version: write one concrete output now.',
       next_action: 'Start timer for 5 minutes and complete one tiny action that creates visible progress.',
       proof_needed: 'Screenshot or note showing what changed in 5 minutes.',
@@ -100,6 +135,13 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
   }
   if (!outcomes.length) {
     return {
+      headline: 'Plan before execution',
+      do_now: 'Generate a 3-outcome plan now.',
+      steps: ['Choose day type', 'Add context', 'Accept plan'],
+      why_it_matters: 'No plan means random effort.',
+      avoid: 'Do not start without priorities.',
+      timebox_minutes: 10,
+      action_buttons: [{ label: 'Plan today', action: 'none' }],
       direct_answer: 'You have no outcomes yet. Start by choosing top 3 outcomes for today.',
       next_action: 'Open "Plan today with AI" and pick your day type.',
       proof_needed: 'Three outcome cards visible.',
@@ -110,6 +152,17 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
     };
   }
   return {
+    headline: focus?.title ? 'Stay in current mission' : 'Start highest leverage outcome',
+    do_now: focus?.title ? `Do next action for "${focus.title}".` : 'Start a 25-minute focus block now.',
+    steps: focus?.title ? ['Complete one action', 'Log proof', 'Mark done or continue'] : ['Pick outcome', 'Start focus', 'Log proof'],
+    why_it_matters: 'Execution on one priority compounds.',
+    avoid: 'Avoid context switching before proof.',
+    timebox_minutes: 25,
+    action_buttons: [
+      { label: 'Start focus', action: 'start_focus' },
+      { label: 'Log proof', action: 'log_proof' },
+      { label: 'Create workflow', action: 'create_workflow' }
+    ],
     direct_answer: focus?.title
       ? `Stay inside active focus: "${focus.title}".`
       : 'Start with the highest leverage outcome first.',
@@ -157,6 +210,11 @@ Rules:
 - Reframe unrealistic goals into a one-day feasible artifact with proof.
 - Every generated outcome must be one-day scoped, proof-backed, and include a first action.
 - Ban generic filler.
+- You are not a motivational chatbot. You are an execution coach.
+- Keep response under 120 words unless asked for detail.
+- For "What next?": return do_now + up to 3 steps + proof_needed.
+- For "Make it tiny": return one action that takes 2-5 minutes.
+- Prefer concrete verbs: open, write, send, upload, record, screenshot, commit, test, publish.
 
 Return strict JSON:
 {
