@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePathname } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { CommandPalette } from '@/components/CommandPalette';
 
 export function Nav() {
   const router = useRouter();
@@ -35,6 +36,7 @@ export function Nav() {
     <nav className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
       <Link href="/" className="text-xl font-black tracking-tight">Task<span className="text-amber-400">Pilot</span></Link>
       <div className="flex items-center gap-1 text-sm">
+        <button className="btn-ghost btn-sm hidden md:inline-flex" onClick={() => window.dispatchEvent(new Event('taskpilot-open-command'))}>Command</button>
         <Link href="/pricing" className={linkCls('/pricing')}>Pricing</Link>
         <Link href="/demo" className={`${linkCls('/demo')} hidden sm:inline-flex`}>Demo</Link>
         {user ? (
@@ -53,6 +55,7 @@ export function Nav() {
           </>
         )}
       </div>
+      <CommandPalette />
     </nav>
   );
 }

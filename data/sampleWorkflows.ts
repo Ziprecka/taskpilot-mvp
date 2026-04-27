@@ -2,8 +2,59 @@ import type { Workflow } from '@/types/workflow';
 
 export const sampleWorkflows: Workflow[] = [
   {
+    id: 'daily-top-3-planning',
+    workflow_name: 'Plan Today Top 3 Outcomes',
+    category: 'productivity',
+    difficulty: 'beginner',
+    estimated_time: '15 minutes',
+    required_tools: ['TaskPilot Daily Mode'],
+    required_materials: [],
+    prerequisites: ['Know what kind of day you are planning'],
+    steps: [
+      { step_number: 1, title: 'Choose day type', instructions: 'Decide whether today is primarily build, money, admin, learning, or personal productivity.', expected_state: 'Day type selected.', visual_checks: [], common_mistakes: ['Skipping intent and jumping into tasks'], troubleshooting: ['Pick one primary day type only.'], completion_criteria: 'Day type decided.' },
+      { step_number: 2, title: 'Set top 3 outcomes', instructions: 'Write three outcomes with visible end-of-day proof.', expected_state: 'Three measurable outcomes defined.', visual_checks: [], common_mistakes: ['Using vague tasks'], troubleshooting: ['Rewrite each as a visible result.'], completion_criteria: 'Top 3 outcomes written.' },
+      { step_number: 3, title: 'Start first focus block', instructions: 'Choose the highest leverage outcome and start a 25-minute block.', expected_state: 'Focus block active.', visual_checks: [], common_mistakes: ['Trying all outcomes at once'], troubleshooting: ['Commit to one block before switching.'], completion_criteria: 'First focus block started.' }
+    ],
+    completion_criteria: 'Top 3 outcomes are clear and first block is active.',
+    report_template: { summary: 'Daily outcomes planned.', issues_found: [], fixes_made: [], recommendations: [] }
+  },
+  {
+    id: 'sales-outreach-list',
+    workflow_name: 'Build a Sales Outreach List',
+    category: 'business_sop',
+    difficulty: 'beginner',
+    estimated_time: '40 minutes',
+    required_tools: ['Spreadsheet or CRM', 'Email/LinkedIn'],
+    required_materials: [],
+    prerequisites: ['Define ideal customer profile'],
+    steps: [
+      { step_number: 1, title: 'Define target segment', instructions: 'Select one customer segment and one pain point.', expected_state: 'Segment + pain point chosen.', visual_checks: [], common_mistakes: ['Too broad audience'], troubleshooting: ['Narrow to one segment.'], completion_criteria: 'Target segment defined.' },
+      { step_number: 2, title: 'Collect 10 leads', instructions: 'Find and log 10 relevant contacts with context.', expected_state: '10 leads added.', visual_checks: [], common_mistakes: ['No context notes'], troubleshooting: ['Add role + trigger note for each lead.'], completion_criteria: 'Lead list complete.' },
+      { step_number: 3, title: 'Send first 3 messages', instructions: 'Send 3 personalized outreach messages.', expected_state: 'First messages sent.', visual_checks: [], common_mistakes: ['Generic templates'], troubleshooting: ['Use one line specific to each lead.'], completion_criteria: '3 outreach messages sent.' }
+    ],
+    completion_criteria: 'Lead list created and first outreach sent.',
+    report_template: { summary: 'Sales outreach list workflow completed.', issues_found: [], fixes_made: [], recommendations: [] }
+  },
+  {
+    id: 'weekly-execution-plan',
+    workflow_name: 'Build a Weekly Execution Plan',
+    category: 'productivity',
+    difficulty: 'beginner',
+    estimated_time: '30 minutes',
+    required_tools: ['Calendar', 'TaskPilot'],
+    required_materials: [],
+    prerequisites: ['Know top goals for the week'],
+    steps: [
+      { step_number: 1, title: 'Choose weekly priorities', instructions: 'List 3 priorities for this week.', expected_state: 'Priorities listed.', visual_checks: [], common_mistakes: ['Too many priorities'], troubleshooting: ['Limit to three.'], completion_criteria: 'Top priorities selected.' },
+      { step_number: 2, title: 'Assign focus blocks', instructions: 'Schedule at least one focus block for each priority.', expected_state: 'Focus blocks on calendar.', visual_checks: [], common_mistakes: ['No time assignment'], troubleshooting: ['Assign exact time windows.'], completion_criteria: 'Focus blocks scheduled.' },
+      { step_number: 3, title: 'Define proof for each priority', instructions: 'Decide what proof confirms completion.', expected_state: 'Proof criteria defined.', visual_checks: [], common_mistakes: ['No completion signal'], troubleshooting: ['Use visible deliverables.'], completion_criteria: 'Proof criteria set.' }
+    ],
+    completion_criteria: 'Weekly execution plan is scheduled and measurable.',
+    report_template: { summary: 'Weekly execution plan created.', issues_found: [], fixes_made: [], recommendations: [] }
+  },
+  {
     id: 'taskpilot-mvp-build',
-    workflow_name: 'TaskPilot MVP Build Workflow',
+    workflow_name: 'Example: TaskPilot MVP Build Workflow (Internal)',
     category: 'coding',
     difficulty: 'intermediate',
     estimated_time: '2-5 days',
@@ -211,5 +262,5 @@ export const sampleWorkflows: Workflow[] = [
 ];
 
 export function getWorkflowById(id: string) {
-  return sampleWorkflows.find((workflow) => workflow.id === id) ?? sampleWorkflows[0];
+  return sampleWorkflows.find((workflow) => workflow.id === id) ?? sampleWorkflows.find((workflow) => workflow.id === 'daily-top-3-planning') ?? sampleWorkflows[0];
 }

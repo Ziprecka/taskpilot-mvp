@@ -176,13 +176,17 @@ export interface DailyEvent {
   id: string;
   type:
     | 'created_outcome'
+    | 'generated_top3'
     | 'started_focus'
     | 'completed_action'
     | 'blocked'
+    | 'blocker_resolved'
     | 'drift_detected'
     | 'proof_added'
     | 'completed_outcome'
-    | 'report_generated';
+    | 'report_generated'
+    | 'coach_message_sent'
+    | 'carry_over';
   content: string;
   created_at: string;
 }
@@ -208,8 +212,10 @@ export interface DailyAIResponse {
   next_action: string;
   proof_needed: string;
   suggested_focus_minutes: number;
+  focus_minutes?: number;
   drift_warning: string;
   priority_reason: string;
+  suggested_outcome_update?: string;
   updated_outcome_status?: string;
 }
 

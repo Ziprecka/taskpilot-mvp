@@ -13,6 +13,24 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
+  function getSmartDefaultRoute() {
+    if (typeof window === 'undefined') return '/dashboard';
+    const onboardingComplete = localStorage.getItem('taskpilot-onboarding-complete') === 'true';
+    if (!onboardingComplete) return '/onboarding';
+    const today = new Date().toISOString().slice(0, 10);
+    const dailyKeys = Object.keys(localStorage).filter((key) => key.includes(`taskpilot-daily-`) && key.includes(today));
+    if (dailyKeys.length) {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(dailyKeys[0]) || '{}');
+        if (parsed?.focus?.status === 'active') return '/daily';
+      } catch {
+        // ignore
+      }
+    }
+    const hasSession = Object.keys(localStorage).some((key) => key.startsWith('taskpilot-session-'));
+    return hasSession ? '/dashboard' : '/onboarding';
+  }
+
   const [emailNotConfirmed, setEmailNotConfirmed] = useState(false);
 
   useEffect(() => {
@@ -27,7 +45,7 @@ export default function LoginPage() {
     void supabase.auth.getUser().then(({ data }) => {
       if (data.user) {
         router.refresh();
-        router.replace(params.get('next') || '/dashboard');
+        router.replace(params.get('next') || getSmartDefaultRoute());
       }
     });
   }, [router]);
@@ -60,7 +78,7 @@ export default function LoginPage() {
       }
       if (data.user?.id) localStorage.setItem('taskpilot-auth-user-id', data.user.id);
       router.refresh();
-      router.push(nextPath);
+      router.push(nextPath === '/dashboard' ? getSmartDefaultRoute() : nextPath);
     } catch {
       setError('Network error');
     }

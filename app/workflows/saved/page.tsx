@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Nav } from '@/components/Nav';
 import { sampleWorkflows } from '@/data/sampleWorkflows';
 import { deleteGeneratedWorkflow, loadGeneratedWorkflows, saveGeneratedWorkflow } from '@/lib/workflowPersistence';
+import { getPinnedWorkflowIds, togglePinnedWorkflow } from '@/lib/pinnedWorkflows';
 import type { Workflow } from '@/types/workflow';
 
 type Source = 'built-in' | 'generated' | 'supabase' | 'local';
@@ -38,9 +39,11 @@ export default function SavedWorkflowsPage() {
   const [category, setCategory] = useState('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | Source>('all');
   const [sort, setSort] = useState<'recent' | 'newest' | 'steps'>('recent');
+  const [pinned, setPinned] = useState<string[]>([]);
 
   useEffect(() => {
     setGenerated(loadGeneratedWorkflows());
+    setPinned(getPinnedWorkflowIds());
     void fetch('/api/health')
       .then((res) => res.json())
       .then((health) => {
@@ -106,6 +109,9 @@ export default function SavedWorkflowsPage() {
     .filter((row) => (category === 'all' ? true : row.category === category))
     .filter((row) => `${row.name} ${row.category}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
+      const aPinned = pinned.includes(a.workflow.id) ? 1 : 0;
+      const bPinned = pinned.includes(b.workflow.id) ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
       if (sort === 'steps') return b.steps - a.steps;
       if (sort === 'newest') return (b.id > a.id ? 1 : -1);
       return (b.lastUsed || '').localeCompare(a.lastUsed || '');
@@ -151,6 +157,7 @@ export default function SavedWorkflowsPage() {
                 <p className="text-xs text-slate-500">source: {row.source} · quality: {row.quality}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Link className="btn-secondary text-xs" href={`/session/${row.workflow.id}`}>Start</Link>
+                  <button className="btn-ghost btn-sm" onClick={() => setPinned(togglePinnedWorkflow(row.workflow.id))}>{pinned.includes(row.workflow.id) ? 'Unpin' : 'Pin'}</button>
                   <Link className="btn-secondary text-xs" href="/workflows/generate">Edit</Link>
                   <button className="btn-secondary text-xs" onClick={() => setGenerated((prev) => [saveGeneratedWorkflow({ ...row.workflow, id: `${row.workflow.id}-copy-${Date.now()}` })[0], ...prev])}>Duplicate</button>
                   <button className="btn-secondary text-xs" onClick={() => { if (row.source === 'generated') setGenerated(deleteGeneratedWorkflow(row.workflow.id)); }}>Delete</button>
