@@ -108,11 +108,17 @@ export default function DailyPage() {
   const [proposedOutcomes, setProposedOutcomes] = useState<DailyOutcome[]>([]);
   const [customDirection, setCustomDirection] = useState('');
   const [dayType, setDayType] = useState<DayType>('personal');
+  const [selectedDayType, setSelectedDayType] = useState<DayType | null>(null);
+  const [planWarning, setPlanWarning] = useState('');
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [generationStage, setGenerationStage] = useState('');
+  const [showReplacePrompt, setShowReplacePrompt] = useState(false);
   const [editingOutcomeId, setEditingOutcomeId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<Partial<DailyOutcome>>({});
   const [blockerModalOutcomeId, setBlockerModalOutcomeId] = useState<string | null>(null);
   const [blockerNote, setBlockerNote] = useState('');
   const [showAllEvents, setShowAllEvents] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [lessonSourceId, setLessonSourceId] = useState<string | null>(null);
   const [lessonDraft, setLessonDraft] = useState<LearningCardType>({
     id: '',
@@ -150,7 +156,10 @@ export default function DailyPage() {
           proof_count_today: parsed?.proof_count_today ?? 0,
           lessons: Array.isArray(parsed?.lessons) ? parsed.lessons : []
         });
-        if (parsed?.selected_day_type) setDayType(parsed.selected_day_type);
+        if (parsed?.selected_day_type) {
+          setDayType(parsed.selected_day_type);
+          setSelectedDayType(parsed.selected_day_type);
+        }
         if (parsed?.custom_context) setCustomDirection(parsed.custom_context);
       }
     } catch {
@@ -161,6 +170,14 @@ export default function DailyPage() {
       setSyncLabel(health?.env?.supabaseEnabled ? 'Synced' : 'Local');
     }).catch(() => null);
   }, [storageKey, today]);
+
+  function openPlanModal() {
+    setSelectedDayType(null);
+    setPlanWarning('');
+    setProposedOutcomes([]);
+    setShowPlanReview(false);
+    setShowPlanModal(true);
+  }
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify({ ...state, last_saved_at: nowIso() }));
@@ -190,7 +207,7 @@ export default function DailyPage() {
       addOutcome();
     }
     function onPlanToday() {
-      setShowPlanModal(true);
+      openPlanModal();
     }
     function onStartFocus() {
       pickBestOutcome();
@@ -206,12 +223,30 @@ export default function DailyPage() {
       if (state.active_outcome_id) openLessonModal(state.active_outcome_id);
       else pushToast('Complete an outcome first to save a lesson.');
     }
+    function onImprovePage() {
+      addOutcome('Improve Daily Command Center UX');
+      updateState((prev) => ({
+        ...prev,
+        outcomes: prev.outcomes.map((o) => o.title === 'Improve Daily Command Center UX'
+          ? {
+              ...o,
+              first_action: 'Identify one confusing interaction on this page.',
+              proof_required: 'Before/after screenshot or deployed commit.',
+              estimated_minutes: 60,
+              category: 'build',
+              value_score: 8,
+              leverage_score: 9
+            }
+          : o)
+      }));
+    }
     window.addEventListener('daily-add-outcome', onAddOutcome as EventListener);
     window.addEventListener('daily-plan-today', onPlanToday as EventListener);
     window.addEventListener('daily-start-focus', onStartFocus as EventListener);
     window.addEventListener('daily-log-proof', onLogProof as EventListener);
     window.addEventListener('daily-generate-report', onGenerateReport as EventListener);
     window.addEventListener('daily-save-lesson', onSaveLesson as EventListener);
+    window.addEventListener('daily-improve-page', onImprovePage as EventListener);
     return () => {
       window.removeEventListener('daily-add-outcome', onAddOutcome as EventListener);
       window.removeEventListener('daily-plan-today', onPlanToday as EventListener);
@@ -219,6 +254,7 @@ export default function DailyPage() {
       window.removeEventListener('daily-log-proof', onLogProof as EventListener);
       window.removeEventListener('daily-generate-report', onGenerateReport as EventListener);
       window.removeEventListener('daily-save-lesson', onSaveLesson as EventListener);
+      window.removeEventListener('daily-improve-page', onImprovePage as EventListener);
     };
   }, [state.outcomes.length, state.active_outcome_id]);
 
@@ -285,32 +321,80 @@ export default function DailyPage() {
   }
 
   async function proposePlan() {
-    const prompt = `Plan top 3 outcomes for a ${dayType} day. Context: ${customDirection || 'none'}.`;
-    const res = await fetch('/api/daily/coach', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: prompt, generateTop3: true, dayType, customDirection, outcomes: state.outcomes, activeFocus: state.active_focus_block, fullState: state })
-    });
-    const payload = await res.json();
-    const generated = Array.isArray(payload?.data?.generated_outcomes) ? payload.data.generated_outcomes : BASE_OUTCOME_LIBRARY[dayType];
-    setProposedOutcomes(generated.slice(0, 3).map((title: string, idx: number) => makeOutcome(title, idx)));
-    setShowPlanReview(true);
-    setShowPlanModal(false);
+    const chosenDayType = selectedDayType;
+    if (!chosenDayType) {
+      setPlanWarning('Choose the kind of day first.');
+      return;
+    }
+    if (chosenDayType === 'custom' && !customDirection.trim()) {
+      setPlanWarning('Add context for your custom day.');
+      return;
+    }
+    setPlanWarning('');
+    setIsGeneratingPlan(true);
+    setGenerationStage('Scoping outcomes');
+    const userPrefs = (() => {
+      try { return JSON.parse(localStorage.getItem('taskpilot-user-preferences') || '{}'); } catch { return {}; }
+    })();
+    const prompt = `Plan top 3 outcomes for a ${chosenDayType} day. Context: ${customDirection || 'none'}.`;
+    setGenerationStage('Adding proof requirements');
+    try {
+      const res = await fetch('/api/daily/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: prompt,
+          generateTop3: true,
+          selected_day_type: chosenDayType,
+          custom_context: customDirection,
+          existing_outcomes: state.outcomes,
+          active_focus_block: state.active_focus_block,
+          user_preferences: userPrefs,
+          recent_daily_events: state.events.slice(0, 12),
+          dayType: chosenDayType,
+          customDirection,
+          outcomes: state.outcomes,
+          activeFocus: state.active_focus_block,
+          fullState: state
+        })
+      });
+      const payload = await res.json();
+      setGenerationStage('Ranking leverage');
+      const generated = Array.isArray(payload?.data?.generated_outcomes) ? payload.data.generated_outcomes : BASE_OUTCOME_LIBRARY[chosenDayType];
+      setProposedOutcomes(generated.slice(0, 3).map((title: string, idx: number) => makeOutcome(title, idx)));
+      setShowPlanReview(true);
+    } finally {
+      setIsGeneratingPlan(false);
+      setGenerationStage('');
+    }
   }
 
   function acceptProposedOutcomes(selectedIds?: string[]) {
+    if (state.outcomes.length) {
+      setShowReplacePrompt(true);
+      return;
+    }
+    acceptProposedOutcomesWithMode('replace', selectedIds);
+  }
+
+  function acceptProposedOutcomesWithMode(mode: 'replace' | 'append', selectedIds?: string[]) {
     const chosen = selectedIds?.length ? proposedOutcomes.filter((item) => selectedIds.includes(item.id)) : proposedOutcomes;
     updateState((prev) => ({
       ...prev,
-      selected_day_type: dayType,
+      selected_day_type: selectedDayType || dayType,
       custom_context: customDirection,
-      outcomes: chosen.slice(0, 3).map((item, idx) => ({ ...item, priority: Math.min(3, idx + 1) as 1 | 2 | 3 }))
+      outcomes: (mode === 'append'
+        ? [...prev.outcomes, ...chosen]
+        : [...prev.outcomes.filter((o) => o.status === 'done'), ...chosen]
+      ).slice(0, 6).map((item, idx) => ({ ...item, priority: Math.min(3, idx + 1) as 1 | 2 | 3 }))
     }));
-    logEvent('generated_top3', `Planned top 3 outcomes for ${dayType} day.`);
+    logEvent('generated_top3', `Created 3-outcome ${selectedDayType || dayType} day plan.`);
     void trackProductEvent('daily_plan_created', '/daily', { dayType, count: chosen.length });
     awardXP(10, 'Plan created');
     pushToast('Daily plan accepted.');
     setShowPlanReview(false);
+    setShowPlanModal(false);
+    setShowReplacePrompt(false);
   }
 
   function pickBestOutcome() {
@@ -513,12 +597,15 @@ export default function DailyPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: content,
+        selected_day_type: selectedDayType || dayType,
+        custom_context: customDirection,
         dayType,
         customDirection,
         outcomes: state.outcomes,
         focus: state.active_focus_block,
         events: state.events,
         report: state.report,
+        xp_state: { total_xp: state.total_xp || 0, xp_today: state.xp_today || 0, streak: state.streak || 0, level: state.level || 1 },
         fullState: state
       })
     });
@@ -602,7 +689,7 @@ export default function DailyPage() {
   const recommendedOutcome = [...state.outcomes]
     .filter((o) => o.status !== 'done')
     .sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0];
-  const shownEvents = showAllEvents ? state.events : state.events.slice(0, 10);
+  const shownEvents = showAllEvents ? state.events : state.events.slice(0, 8);
   const completedToday = state.outcomes.filter((o) => o.status === 'done').length;
   const focusMinutesToday = state.active_focus_block?.actual_minutes || state.outcomes.reduce((sum, o) => sum + (o.actual_minutes || 0), 0);
   const dailyStreak = useMemo(() => {
@@ -653,7 +740,9 @@ export default function DailyPage() {
           <div className="flex flex-wrap gap-2">
             <span className="badge">AI: {aiMode === 'openai' ? 'OpenAI' : 'Mock'}</span>
             <span className="badge">Sync: {syncLabel}</span>
-            <button className="btn-ghost btn-sm" onClick={safeAction('Plan today', () => setShowPlanModal(true))}>Plan today</button>
+            <span className="badge">Saved: {new Date(state.last_saved_at || nowIso()).toLocaleTimeString()}</span>
+            <button className="btn-ghost btn-sm" onClick={safeAction('Plan today', openPlanModal)}>Plan today</button>
+            <button className="btn-ghost btn-sm" onClick={() => setShowResetConfirm(true)}>Reset day</button>
           </div>
         </div>
 
@@ -682,8 +771,9 @@ export default function DailyPage() {
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Today&apos;s Outcomes</h2>
                 <div className="flex gap-2">
-                  <button className="btn-secondary btn-sm" onClick={safeAction('Plan today', () => setShowPlanModal(true))}>Plan today</button>
+                  <button className="btn-secondary btn-sm" onClick={safeAction('Plan today', openPlanModal)}>Plan today</button>
                   <button className="btn-ghost btn-sm" onClick={safeAction('Add outcome', () => addOutcome())}>Add outcome</button>
+                  <button className="btn-ghost btn-sm" onClick={safeAction('Improve this page', () => window.dispatchEvent(new CustomEvent('daily-improve-page')))}>Improve this page</button>
                 </div>
               </div>
               {!state.outcomes.length ? (
@@ -694,7 +784,7 @@ export default function DailyPage() {
                     <button className="btn-secondary btn-sm" onClick={safeAction('Build something', () => { setDayType('build'); addOutcome('Ship one useful improvement'); })}>Build something</button>
                     <button className="btn-secondary btn-sm" onClick={safeAction('Make money', () => { setDayType('money'); addOutcome('Send 10 sales or beta outreach messages'); })}>Make money</button>
                     <button className="btn-secondary btn-sm" onClick={safeAction('Clear blocker', () => addOutcome('Fix the biggest blocker in my current project'))}>Clear a blocker</button>
-                    <button className="btn-ghost btn-sm" onClick={safeAction('Start from scratch', () => setShowPlanModal(true))}>Start from scratch</button>
+                    <button className="btn-ghost btn-sm" onClick={safeAction('Start from scratch', openPlanModal)}>Start from scratch</button>
                   </div>
                 </div>
               ) : (
@@ -832,7 +922,16 @@ export default function DailyPage() {
             <div className="space-y-1 text-sm text-slate-300">
               {shownEvents.map((event) => (
                 <p key={event.id}>
-                  {new Date(event.created_at).toLocaleTimeString()} · {event.type === 'created_outcome' ? 'Outcome created' : event.type === 'started_focus' ? 'Focus started' : event.type === 'proof_added' ? 'Proof logged' : event.type === 'completed_outcome' ? 'Completed' : event.type === 'report_generated' ? 'Report generated' : event.type === 'blocked' ? 'Blocked' : 'Progress logged'} · {event.content}
+                  {new Date(event.created_at).toLocaleTimeString()} · {
+                    event.type === 'generated_top3' ? 'Plan created'
+                      : event.type === 'created_outcome' ? 'Outcome added'
+                      : event.type === 'started_focus' ? 'Focus started'
+                      : event.type === 'proof_added' ? 'Evidence logged'
+                      : event.type === 'completed_outcome' ? 'Outcome completed'
+                      : event.type === 'report_generated' ? 'Day closed'
+                      : event.type === 'blocked' ? 'Blocked'
+                      : 'Progress logged'
+                  } · {event.content}
                 </p>
               ))}
               {!state.events.length && <p className="text-slate-500">No progress logged yet. Start a focus block or mark an outcome complete.</p>}
@@ -893,39 +992,81 @@ export default function DailyPage() {
         {showPlanModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowPlanModal(false)}>
             <div className="card w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-xl font-black">What kind of day are you planning?</h2>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {(['build', 'money', 'admin', 'learning', 'personal', 'custom'] as DayType[]).map((type) => (
-                  <button key={type} className={`btn-secondary btn-sm ${dayType === type ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setDayType(type)}>{type}</button>
-                ))}
-              </div>
-              <textarea className="input mt-3 min-h-24" value={customDirection} onChange={(e) => setCustomDirection(e.target.value)} placeholder="What is on your mind today?" />
-              <div className="mt-3 flex gap-2">
-                <button className="btn-primary" onClick={safeAction('Plan today', () => void proposePlan())}>Plan today</button>
-                <button className="btn-ghost" onClick={() => setShowPlanModal(false)}>Cancel</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showPlanReview && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowPlanReview(false)}>
-            <div className="card w-full max-w-3xl p-5" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-xl font-black">Review proposed top 3</h2>
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
-                {proposedOutcomes.map((outcome) => (
-                  <div key={outcome.id} className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
-                    <p className="font-semibold">{outcome.title}</p>
-                    <p className="text-xs text-slate-500">Proof: {outcome.proof_required}</p>
-                    <p className="text-xs text-slate-500">First action: {outcome.first_action}</p>
-                    <p className="text-xs text-slate-500">Est: {outcome.estimated_minutes}m · Quality: {outcome.quality_score}</p>
+              <h2 className="text-xl font-black">{showPlanReview ? 'Review Today\'s Plan' : 'What kind of day are you planning?'}</h2>
+              {!showPlanReview && (
+                <>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {(['build', 'money', 'admin', 'learning', 'personal', 'custom'] as DayType[]).map((type) => (
+                      <button
+                        key={type}
+                        aria-pressed={selectedDayType === type}
+                        className={`rounded-xl border px-3 py-2 text-sm capitalize transition ${
+                          selectedDayType === type
+                            ? 'border-yellow-500 bg-yellow-500/15 text-yellow-100 shadow-[0_0_0_1px_rgba(245,158,11,0.35)]'
+                            : 'border-slate-700 bg-slate-950/40 text-slate-300'
+                        }`}
+                        onClick={() => { setSelectedDayType(type); setDayType(type); setPlanWarning(''); }}
+                      >
+                        {selectedDayType === type ? '● ' : ''}{type}
+                      </button>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button className="btn-primary" onClick={safeAction('Accept all', () => acceptProposedOutcomes())}>Accept all</button>
-                <button className="btn-secondary" onClick={safeAction('Regenerate', () => void proposePlan())}>Regenerate</button>
-                <button className="btn-ghost" onClick={() => setShowPlanReview(false)}>Cancel</button>
+                  <p className="mt-2 text-xs text-slate-400">
+                    {selectedDayType === 'build' && 'Ship, fix, design, or improve something tangible.'}
+                    {selectedDayType === 'money' && 'Outreach, follow-up, offers, invoices, sales assets, or revenue actions.'}
+                    {selectedDayType === 'admin' && 'Clear overdue tasks, organize systems, document processes, close loops.'}
+                    {selectedDayType === 'learning' && 'Learn one concept and produce proof: notes, checklist, demo, or artifact.'}
+                    {selectedDayType === 'personal' && 'Health, home, life maintenance, clarity, or personal execution.'}
+                    {selectedDayType === 'custom' && 'Use your own context. TaskPilot will turn it into proof-backed outcomes.'}
+                    {!selectedDayType && 'Choose a day type to shape your plan.'}
+                  </p>
+                  <textarea className="input mt-3 min-h-24" value={customDirection} onChange={(e) => setCustomDirection(e.target.value)} placeholder="What is on your mind today?" />
+                  {selectedDayType === 'build' && (
+                    <button
+                      className="btn-ghost btn-sm mt-2"
+                      onClick={() => {
+                        const now = nowIso();
+                        setProposedOutcomes([
+                          { ...makeOutcome('Fix one visible UX issue', 0), first_action: 'Identify the exact page/component.', proof_required: 'Before/after screenshot' , created_at: now, updated_at: now},
+                          { ...makeOutcome('Ship one product-loop improvement', 1), first_action: 'Define smallest improvement to Daily loop.', proof_required: 'Commit or deployed change', created_at: now, updated_at: now},
+                          { ...makeOutcome('Test one user journey end-to-end', 2), first_action: 'Choose one journey and run it.', proof_required: 'Test notes or screen recording', created_at: now, updated_at: now}
+                        ]);
+                        setShowPlanReview(true);
+                      }}
+                    >
+                      Use TaskPilot improvement template
+                    </button>
+                  )}
+                </>
+              )}
+              {showPlanReview && (
+                <div className="mt-3 grid gap-2">
+                  {proposedOutcomes.map((outcome) => (
+                    <div key={outcome.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-3">
+                      <p className="font-semibold">{outcome.title}</p>
+                      <p className="text-xs text-slate-500">First action: {outcome.first_action}</p>
+                      <p className="text-xs text-slate-500">Evidence: {outcome.proof_required}</p>
+                      <p className="text-xs text-slate-500">Est: {outcome.estimated_minutes}m · Value {outcome.value_score} · Leverage {outcome.leverage_score}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!!planWarning && <p className="mt-2 text-sm text-amber-200">{planWarning}</p>}
+              {isGeneratingPlan && <p className="mt-2 text-sm text-slate-300">Building today&apos;s execution plan... {generationStage}</p>}
+              <div className="mt-3 flex gap-2">
+                {!showPlanReview ? (
+                  <>
+                    <button className="btn-primary" disabled={isGeneratingPlan} onClick={safeAction('Plan today', () => void proposePlan())}>Plan today</button>
+                    <button className="btn-ghost" onClick={() => setShowPlanModal(false)}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn-primary" onClick={() => acceptProposedOutcomesWithMode('replace')}>Accept plan</button>
+                    <button className="btn-secondary" onClick={() => void proposePlan()}>Regenerate</button>
+                    <button className="btn-ghost" onClick={() => setShowPlanReview(false)}>Edit manually</button>
+                    <button className="btn-ghost" onClick={() => setShowPlanModal(false)}>Cancel</button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -971,6 +1112,33 @@ export default function DailyPage() {
               <div className="mt-3 flex gap-2">
                 <button className="btn-primary" onClick={safeAction('Save lesson', saveLesson)}>Save lesson</button>
                 <button className="btn-ghost" onClick={() => setLessonSourceId(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showReplacePrompt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowReplacePrompt(false)}>
+            <div className="card w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">Existing outcomes found</h2>
+              <p className="mt-1 text-sm text-slate-400">Replace today&apos;s existing outcomes or append to them?</p>
+              <div className="mt-3 flex gap-2">
+                <button className="btn-primary" onClick={() => acceptProposedOutcomesWithMode('replace')}>Replace outcomes</button>
+                <button className="btn-secondary" onClick={() => acceptProposedOutcomesWithMode('append')}>Append outcomes</button>
+                <button className="btn-ghost" onClick={() => setShowReplacePrompt(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showResetConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowResetConfirm(false)}>
+            <div className="card w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">Reset day</h2>
+              <p className="mt-1 text-sm text-slate-400">This clears today&apos;s outcomes, focus blocks, timeline, and report for this device/account. Continue?</p>
+              <div className="mt-3 flex gap-2">
+                <button className="btn-danger" onClick={() => { setState(buildInitialState(today)); setShowResetConfirm(false); pushToast('Day reset.'); }}>Reset day</button>
+                <button className="btn-ghost" onClick={() => setShowResetConfirm(false)}>Cancel</button>
               </div>
             </div>
           </div>

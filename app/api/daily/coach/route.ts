@@ -23,8 +23,44 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
   const outcomes = Array.isArray(body?.outcomes) ? body.outcomes : [];
   const focus = body?.focus;
   const lower = message.toLowerCase();
+  const reportDone = Boolean(body?.report);
+  if (lower.includes('what should i do next') || lower.includes('next move')) {
+    if (!outcomes.length) {
+      return {
+        direct_answer: 'You do not have a plan yet. Start by planning today.',
+        next_action: 'Create a 3-outcome plan for your selected day type.',
+        proof_needed: 'Three outcomes with first action and evidence requirement.',
+        suggested_focus_minutes: 10,
+        focus_minutes: 10,
+        drift_warning: '',
+        priority_reason: 'Planning first prevents random execution.'
+      };
+    }
+    if (focus?.status === 'active') {
+      return {
+        direct_answer: `Finish the current mission: ${focus.title}.`,
+        next_action: 'Complete current action and log evidence.',
+        proof_needed: 'One evidence note for this focus block.',
+        suggested_focus_minutes: 15,
+        focus_minutes: 15,
+        drift_warning: '',
+        priority_reason: 'Closing active work beats context switching.'
+      };
+    }
+    if (reportDone) {
+      return {
+        direct_answer: 'Your debrief is complete. Carry forward unfinished work or plan tomorrow.',
+        next_action: 'Carry forward unfinished outcomes and define tomorrow first move.',
+        proof_needed: 'Tomorrow first action defined.',
+        suggested_focus_minutes: 10,
+        focus_minutes: 10,
+        drift_warning: '',
+        priority_reason: 'A clear next-day start protects momentum.'
+      };
+    }
+  }
   if (body?.generateTop3) {
-    const dayType = body?.dayType || 'personal';
+    const dayType = body?.selected_day_type || body?.dayType || 'personal';
     const map: Record<string, string[]> = {
       build: ['Ship one scoped product improvement', 'Fix the most visible UX issue', 'Record proof/demo of progress'],
       money: ['Send 10 targeted outreach messages', 'Create one offer page or sales asset', 'Follow up with 3 warm leads'],
@@ -33,7 +69,7 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
       personal: ['Complete one meaningful life admin task', 'Protect one deep-work block', 'Close one open loop'],
       custom: ['Define one high-impact outcome', 'Break it into first concrete action', 'Capture proof by day end']
     };
-    const custom = String(body?.customDirection || '').toLowerCase();
+    const custom = String(body?.custom_context || body?.customDirection || '').toLowerCase();
     const generated = ensureScopedOutcomes(map[dayType] || map.personal);
     const customGenerated = custom.includes('money') || custom.includes('sell')
       ? ensureScopedOutcomes(['Send 10 targeted outreach messages', 'Follow up with 5 warm leads', 'Create one offer asset or landing page section'])
@@ -100,13 +136,14 @@ export async function POST(req: NextRequest) {
 Your job is to coach daily execution for general users, not just building TaskPilot.
 
 Context priority:
-1) today's outcomes
-2) active focus block
-3) user's latest message
-4) blockers
-5) timeline events
-6) day type
-7) active workflow only if relevant
+1) selected day type
+2) today's outcomes
+3) active focus block
+4) user's latest message
+5) blockers
+6) timeline events
+7) xp/streak state
+8) active workflow only if relevant
 
 Rules:
 - Do NOT mention TaskPilot MVP unless user outcomes/focus explicitly mention it.
@@ -114,6 +151,7 @@ Rules:
 - If no outcomes: direct user to create top 3 outcomes.
 - If outcomes exist and no focus is active: pick highest leverage and suggest first action.
 - If focus is active: coach next action within focus scope.
+- If report is done: suggest carry forward or tomorrow first move.
 - For money questions: suggest concrete revenue/output actions.
 - Never generate fantasy or impossible execution outcomes.
 - Reframe unrealistic goals into a one-day feasible artifact with proof.

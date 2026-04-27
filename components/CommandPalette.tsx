@@ -14,6 +14,7 @@ const COMMANDS: Command[] = [
   { label: 'Log Proof', href: '/daily' },
   { label: 'Close the Day', href: '/daily' },
   { label: 'Save Lesson', href: '/daily' },
+  { label: 'Improve this page', href: '/daily' },
   { label: 'Generate Workflow', href: '/workflows/generate' },
   { label: 'Open Workflow Library', href: '/workflows/saved' },
   { label: 'Open Saved Sessions', href: '/sessions' },
@@ -49,6 +50,7 @@ export function CommandPalette() {
         { label: 'Log Proof', action: 'daily-log-proof' },
         { label: 'Close the Day', action: 'daily-generate-report' },
         { label: 'Save Lesson', action: 'daily-save-lesson' }
+        ,{ label: 'Improve this page', action: 'daily-improve-page' }
       ]);
       return;
     }
