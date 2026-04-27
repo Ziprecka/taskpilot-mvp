@@ -19,6 +19,22 @@ body {
   backdrop-filter: blur(18px);
   border-radius: 1.25rem;
   box-shadow: 0 20px 80px rgba(0,0,0,0.22);
+  transition: transform .18s ease, border-color .18s ease, box-shadow .2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(245, 158, 11, 0.35);
+  box-shadow: 0 24px 90px rgba(0,0,0,0.28);
+}
+.card-hero {
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: linear-gradient(160deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.86));
+}
+.card-stat {
+  background: rgba(15, 23, 42, 0.64);
+}
+.card-list {
+  background: rgba(2, 6, 23, 0.55);
 }
 
 .btn-primary {
@@ -27,9 +43,16 @@ body {
   color: #111827;
   font-weight: 800;
   padding: 0.8rem 1rem;
-  transition: all .15s ease;
+  min-height: 2.6rem;
+  transition: all .18s ease;
 }
 .btn-primary:hover { transform: translateY(-1px); background: #fbbf24; }
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-ghost:focus-visible {
+  outline: 2px solid rgba(245, 158, 11, .85);
+  outline-offset: 2px;
+}
 
 .btn-secondary {
   border-radius: 0.9rem;
@@ -38,6 +61,40 @@ body {
   color: #f8fafc;
   font-weight: 700;
   padding: 0.8rem 1rem;
+  min-height: 2.6rem;
+  transition: all .18s ease;
+}
+.btn-secondary:hover {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(30, 41, 59, 0.92);
+}
+.btn-ghost {
+  border-radius: 0.9rem;
+  color: #cbd5e1;
+  font-weight: 700;
+  padding: 0.65rem 0.85rem;
+  min-height: 2.35rem;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.btn-ghost:hover {
+  color: #f8fafc;
+  border-color: rgba(148, 163, 184, .28);
+  background: rgba(15, 23, 42, .5);
+}
+.btn-danger {
+  border-radius: 0.9rem;
+  background: rgba(220, 38, 38, .12);
+  border: 1px solid rgba(248, 113, 113, .35);
+  color: #fecaca;
+  font-weight: 700;
+  padding: 0.7rem 0.9rem;
+}
+.btn-sm {
+  min-height: 2rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.7rem;
+  font-size: .76rem;
 }
 .input {
   width: 100%;

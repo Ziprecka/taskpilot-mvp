@@ -209,12 +209,12 @@ export function AIChatPanel({
   }
 
   return (
-    <div className="card flex h-[calc(100vh-180px)] min-h-[620px] max-h-[760px] flex-col p-5">
+    <div className="card card-hover flex h-[calc(100vh-170px)] min-h-[620px] max-h-[780px] flex-col p-4 sm:p-5">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">AI Copilot</h2>
         <div className="flex gap-2">
           {process.env.NODE_ENV !== 'production' && (
-            <button className="btn-secondary text-xs" onClick={() => setMessages([])}>Clear chat</button>
+            <button className="btn-ghost btn-sm" onClick={() => setMessages([])}>Clear</button>
           )}
           <span className={`badge ${latestAIResponse?.ai_source === 'openai' ? '' : 'border-amber-400/60 text-amber-200'}`}>
             AI: {latestAIResponse?.ai_source === 'openai' ? 'OpenAI' : 'Mock Mode'}
@@ -224,14 +224,14 @@ export function AIChatPanel({
       {latestAIResponse?.ai_source !== 'openai' && uploads.length > 0 && (
         <p className="mb-3 text-xs text-amber-300">Mock Mode cannot truly inspect images. Add OPENAI_API_KEY to enable visual checking.</p>
       )}
-      <div className="mb-3 flex flex-wrap gap-2">
-        <button className="btn-secondary text-sm" onClick={() => sendMessage('Based on the current workflow state, give me the single highest leverage next action. Mention the exact file, feature, or setup task if known.')}>What next?</button>
-        <button className="btn-secondary text-sm" onClick={() => sendMessage('Explain the current step in plain language. Include what I need to build, why it matters, what file or feature is involved, and the exact next action.')}>Explain current step</button>
-        <button className="btn-secondary text-sm" onClick={() => sendMessage('Explain why this step matters to TaskPilot becoming a real product. Be specific, not generic.')}>Why does this matter?</button>
-        <button className="btn-secondary text-sm" onClick={() => sendMessage('I am blocked. Debug this blocker. Ask for exact logs if missing and give one first fix.')}>Debug blocker</button>
-        <button className="btn-secondary text-sm" onClick={() => sendMessage('check my work using latest proof')}>Check latest proof</button>
-        <button className="btn-secondary text-sm" onClick={() => sendMessage('Generate a structured progress report for this session.')}>Generate report</button>
-        <button className="btn-secondary text-sm" onClick={() => sendMessage('You are helping me build TaskPilot itself. Based on the current workflow step, give me the exact implementation task for Cursor. Include the files likely involved, the expected result, and the test I should run.')}>Build Mode</button>
+      <div className="mb-3 rounded-xl border border-slate-800 bg-slate-950/40 p-2">
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-secondary btn-sm" onClick={() => sendMessage('Based on the current workflow state, give me the single highest leverage next action. Mention the exact file, feature, or setup task if known.')}>What next?</button>
+          <button className="btn-ghost btn-sm" onClick={() => sendMessage('Explain the current step in plain language. Include what I need to build, why it matters, what file or feature is involved, and the exact next action.')}>Explain</button>
+          <button className="btn-ghost btn-sm" onClick={() => sendMessage('I am blocked. Debug this blocker. Ask for exact logs if missing and give one first fix.')}>Debug</button>
+          <button className="btn-ghost btn-sm" onClick={() => sendMessage('check my work using latest proof')}>Check proof</button>
+          <button className="btn-ghost btn-sm" onClick={() => sendMessage('Generate a structured progress report for this session.')}>Report</button>
+        </div>
       </div>
       <div ref={scrollerRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/50 p-3">
         {messages.map((m) => (
@@ -241,28 +241,17 @@ export function AIChatPanel({
           </div>
         ))}
         {loading && <p className="text-sm text-slate-400">TaskPilot is thinking...</p>}
-        {!messages.length && (
-          <p className="text-sm text-slate-500">
-            Ask TaskPilot:
-            {' '}
-            - What next?
-            {' '}
-            - Explain this step
-            {' '}
-            - Debug this error
-            {' '}
-            - Check my work
-            {' '}
-            - Mark this blocked
-            {' '}
-            - Generate a report
-          </p>
+        {!messages.length && !loading && (
+          <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-4 text-sm text-slate-400">
+            <p className="font-semibold text-white">No messages yet</p>
+            <p className="mt-1">Ask for the next action, request a debug path, or check proof to begin.</p>
+          </div>
         )}
       </div>
-      <div className="mt-3 border-t border-slate-800 pt-3">
+      <div className="sticky bottom-0 mt-3 border-t border-slate-800 bg-slate-950/65 pt-3 backdrop-blur">
         <div className="flex gap-2">
-        <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask what next, paste error, or describe what you see..." onKeyDown={(e) => e.key === 'Enter' && sendMessage()} />
-        <button className="btn-primary" onClick={() => sendMessage()}>Send</button>
+          <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask what next, paste error, or describe what you see..." onKeyDown={(e) => e.key === 'Enter' && sendMessage()} />
+          <button className="btn-primary" onClick={() => sendMessage()}>Send</button>
         </div>
       </div>
     </div>

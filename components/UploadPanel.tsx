@@ -53,7 +53,7 @@ export function UploadPanel({
   }
 
   return (
-    <div className="card p-5">
+    <div className="card card-list p-5">
       <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Proof / Context</h2>
       <p className="mb-3 text-sm text-slate-400">{uploads.length} uploads · {notes.length} notes</p>
       <div
@@ -75,9 +75,9 @@ export function UploadPanel({
         onChange={(e) => void handleFiles(e.target.files)}
       />
       <div className="mb-4 flex flex-wrap gap-2">
-        <button className="btn-secondary text-sm" onClick={() => fileInputRef.current?.click()}>Choose images</button>
+        <button className="btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()}>Choose images</button>
         <button
-          className="btn-secondary text-sm"
+          className="btn-secondary btn-sm"
           onClick={async () => {
             try {
               const items = await navigator.clipboard.read();
@@ -96,8 +96,8 @@ export function UploadPanel({
         >
           Paste from clipboard
         </button>
-        <button className="btn-secondary text-sm" onClick={onClearContext}>Clear all context</button>
-        <button className="btn-secondary text-sm" onClick={onCheckLatestProof}>Check latest proof</button>
+        <button className="btn-ghost btn-sm" onClick={onClearContext}>Clear context</button>
+        <button className="btn-secondary btn-sm" onClick={onCheckLatestProof}>Check latest proof</button>
       </div>
       {error && <p className="mb-3 text-sm text-amber-300">{error}</p>}
       <textarea
@@ -106,7 +106,7 @@ export function UploadPanel({
         onChange={(e) => setNoteInput(e.target.value)}
         placeholder="Add context note: what you changed, what screenshot shows, what failed..."
       />
-      <button className="btn-secondary mt-2 text-sm" onClick={saveNote}>Save context note</button>
+      <button className="btn-secondary btn-sm mt-2" onClick={saveNote}>Save context note</button>
       {!!uploads.length && (
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {uploads.map((upload) => (

@@ -67,14 +67,14 @@ export function AIMessageCard({
         {!!ai.proof_result?.proof_summary && <p><span className="text-slate-400">Proof:</span> {ai.proof_result.proof_summary}</p>}
         {ai.intent === 'debug' && ai.needs_input && ai.requested_input && <p><span className="text-slate-400">Needed for debug:</span> {ai.requested_input}</p>}
         {ai.proof_result?.should_mark_complete && (
-          <button className="btn-secondary mt-2 text-xs" onClick={onMarkStepComplete}>Mark this step complete</button>
+          <button className="btn-secondary btn-sm mt-2" onClick={onMarkStepComplete}>Mark this step complete</button>
         )}
         <div className="mt-2 flex flex-wrap gap-1">
-          <button className="btn-secondary text-[11px]" onClick={() => rate('useful')}>Useful</button>
-          <button className="btn-secondary text-[11px]" onClick={() => rate('not_useful')}>Not useful</button>
-          <button className="btn-secondary text-[11px]" onClick={() => rate('too_vague')}>Too vague</button>
-          <button className="btn-secondary text-[11px]" onClick={() => rate('wrong')}>Wrong</button>
-          <button className="btn-secondary text-[11px]" onClick={() => rate('great_next_action')}>Great next action</button>
+          <button className="btn-ghost btn-sm text-[11px]" onClick={() => rate('useful')}>Useful</button>
+          <button className="btn-ghost btn-sm text-[11px]" onClick={() => rate('not_useful')}>Not useful</button>
+          <button className="btn-ghost btn-sm text-[11px]" onClick={() => rate('too_vague')}>Too vague</button>
+          <button className="btn-ghost btn-sm text-[11px]" onClick={() => rate('wrong')}>Wrong</button>
+          <button className="btn-ghost btn-sm text-[11px]" onClick={() => rate('great_next_action')}>Great next action</button>
         </div>
       </div>
     </div>

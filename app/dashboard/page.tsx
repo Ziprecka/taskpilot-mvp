@@ -57,94 +57,127 @@ export default function DashboardPage() {
     !dbStatus?.robot?.test_page_exists ? 'Robot test page exists' : null,
     !dbStatus?.robot?.heartbeat_successful ? 'Robot heartbeat successful' : null
   ].filter(Boolean);
+  const latestSession = savedSessions[0];
   return (
     <main>
       <Nav />
       <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
-        <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-          <div>
-            <p className="badge mb-3">Founder cockpit</p>
-            <h1 className="text-4xl font-black">TaskPilot Dashboard</h1>
-            <p className="mt-2 text-slate-400">Start a workflow, debug a task, or turn a process into a reusable system.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/settings/setup" className="btn-secondary">Setup checklist</Link>
-            <Link href="/settings/deploy" className="btn-secondary">Deployment readiness</Link>
-            <Link href="/settings/robot" className="btn-secondary">Robot API</Link>
-            <Link href="/sessions" className="btn-secondary">Saved sessions</Link>
-            <Link href="/workflows/saved" className="btn-secondary">Workflow Library</Link>
-            <Link href="/workflows/generate" className="btn-secondary">Generate Workflow</Link>
-            <Link href="/demo" className="btn-secondary">Demo Mode</Link>
-            <Link href="/workflows/new" className="btn-primary">Start new workflow</Link>
+        <div className="card card-hero mb-7 p-5 md:p-6">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <p className="badge mb-3">Founder cockpit</p>
+              <h1 className="text-3xl font-black md:text-4xl">TaskPilot Dashboard</h1>
+              <p className="mt-2 text-slate-400">Run today’s execution loop: continue your session, unblock bottlenecks, and ship.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href="/workflows/new" className="btn-primary">Start new workflow</Link>
+              <Link href={latestSession ? `/session/${latestSession.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(latestSession.id)}` : '/session/taskpilot-mvp-build'} className="btn-secondary">Continue latest</Link>
+              <Link href="/workflows/generate" className="btn-secondary">Generate workflow</Link>
+              <details className="relative">
+                <summary className="btn-ghost cursor-pointer list-none">Tools</summary>
+                <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-950/95 p-2 shadow-2xl">
+                  <Link href="/settings/setup" className="btn-ghost w-full justify-start text-left">Setup checklist</Link>
+                  <Link href="/settings/deploy" className="btn-ghost w-full justify-start text-left">Deployment readiness</Link>
+                  <Link href="/settings/robot" className="btn-ghost w-full justify-start text-left">Robot API</Link>
+                  <Link href="/sessions" className="btn-ghost w-full justify-start text-left">Saved sessions</Link>
+                  <Link href="/workflows/saved" className="btn-ghost w-full justify-start text-left">Workflow library</Link>
+                  <Link href="/demo" className="btn-ghost w-full justify-start text-left">Demo mode</Link>
+                </div>
+              </details>
+            </div>
           </div>
         </div>
         {!onboardingComplete && (
-          <div className="mb-4 rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-100">
+          <div className="mb-5 rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-100">
             New here? Finish onboarding. <Link href="/onboarding" className="underline">Open onboarding</Link>
           </div>
         )}
-        <div className="mb-8 grid gap-4 md:grid-cols-3">
-          <div className="card p-5"><p className="text-sm text-slate-400">Active sessions</p><p className="text-3xl font-black">1</p></div>
-          <div className="card p-5"><p className="text-sm text-slate-400">Recent saved workflows</p><p className="text-3xl font-black">{generatedCount + sampleWorkflows.length}</p></div>
-          <div className="card p-5"><p className="text-sm text-slate-400">Deployment Readiness</p><p className="text-lg font-bold">{env?.productionReady ? 'Production-ready env' : 'Needs env setup'}</p><Link href="/settings/deploy" className="btn-secondary mt-2 inline-flex">Open Deploy Settings</Link></div>
-          <div className="card p-5"><p className="text-sm text-slate-400">AI mode</p><p className="text-lg font-bold">{env?.hasOpenAIKey ? 'Ready' : 'Missing key'}</p></div>
-          <div className="card p-5"><p className="text-sm text-slate-400">Supabase mode</p><p className="text-lg font-bold">{env?.supabaseEnabled ? 'Ready' : 'Local mode'}</p></div>
-          <div className="card p-5"><p className="text-sm text-slate-400">Robot API Status</p><p className="text-lg font-bold">{env?.hasRobotApiKey ? 'Key configured' : 'Key missing'}</p></div>
-          <div className="card p-5">
-            <p className="text-sm text-slate-400">Daily Productivity</p>
-            <p className="text-lg font-bold">Command center active</p>
-            <Link href="/daily" className="btn-secondary mt-2 inline-flex">Open Daily Mode</Link>
+
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Today / Now</h2>
+        <div className="mb-7 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="card card-stat card-hover p-5">
+            <p className="text-sm text-slate-400">Active sessions</p>
+            <p className="text-3xl font-black">{Math.max(1, savedSessions.length)}</p>
+            <p className="text-xs text-slate-500">Continue your latest workflow from current step.</p>
           </div>
-          <div className="card p-5">
-            <p className="text-sm text-slate-400">Resume latest session</p>
-            <p className="text-lg font-bold">Continue where you left off</p>
-            <Link href={savedSessions[0] ? `/session/${savedSessions[0].workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(savedSessions[0].id)}` : '/session/taskpilot-mvp-build'} className="btn-secondary mt-2 inline-flex">Resume latest</Link>
+          <div className="card card-hover p-5">
+            <p className="text-sm text-slate-400">Continue latest session</p>
+            <p className="text-base font-bold">{latestSession?.workflow_id || 'taskpilot-mvp-build'}</p>
+            <p className="text-xs text-slate-500">Step {latestSession?.current_step || 1}</p>
+            <Link href={latestSession ? `/session/${latestSession.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(latestSession.id)}` : '/session/taskpilot-mvp-build'} className="btn-secondary btn-sm mt-3 inline-flex">Resume</Link>
           </div>
-          <div className="card p-5">
-            <p className="mb-2 text-sm text-slate-400">Continue latest session</p>
-            <Link href="/session/taskpilot-mvp-build" className="btn-secondary mr-2 inline-flex">Continue latest session</Link>
-            <Link href="/session/taskpilot-mvp-build" className="btn-primary inline-flex">Start TaskPilot MVP Build Workflow</Link>
+          <div className="card card-hover p-5">
+            <p className="text-sm text-slate-400">Daily productivity</p>
+            <p className="text-base font-bold">Command center ready</p>
+            <p className="text-xs text-slate-500">Capture outcomes and focus blocks.</p>
+            <Link href="/daily" className="btn-secondary btn-sm mt-3 inline-flex">Open Daily Mode</Link>
           </div>
-          <div className="card p-5">
-            <p className="text-sm text-slate-400">Generate New Workflow</p>
-            <p className="text-lg font-bold">Custom AI-generated plans</p>
-            <Link href="/workflows/generate" className="btn-secondary mt-2 inline-flex">Open Generator</Link>
+          <div className="card card-hover p-5">
+            <p className="text-sm text-slate-400">AI mode</p>
+            <p className="text-base font-bold">{env?.hasOpenAIKey ? 'OpenAI ready' : 'Mock mode'}</p>
+            <p className="text-xs text-slate-500">Source: {env?.hasOpenAIKey ? 'production model' : 'fallback assistant'}</p>
           </div>
-          <div className="card p-5">
-            <p className="text-sm text-slate-400">Beta Feedback</p>
-            <p className="text-lg font-bold">Open items: {feedbackCount}</p>
-            <Link href="/feedback" className="btn-secondary mt-2 inline-flex">Log Beta Feedback</Link>
-          </div>
-          <div className="card p-5">
-            <p className="text-sm text-slate-400">Mobile App / PWA</p>
-            <p className="text-lg font-bold">Installable on phone</p>
-            <Link href="/settings/mobile" className="btn-secondary mt-2 inline-flex">Mobile setup</Link>
-          </div>
-          <div className="card p-5 md:col-span-2">
-            <p className="text-sm text-slate-400">Robot Readiness Score</p>
-            <p className="text-3xl font-black">{robotReadiness}/100</p>
-            <p className="text-xs text-slate-500">Missing: {missing.join(', ')}</p>
-          </div>
-          <div className="card p-5 md:col-span-3">
-            <p className="mb-2 text-sm text-slate-400">Saved sessions (latest 3)</p>
+        </div>
+
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">System / Readiness</h2>
+        <div className="mb-7 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="card card-stat p-5"><p className="text-sm text-slate-400">Supabase mode</p><p className="text-lg font-bold">{env?.supabaseEnabled ? 'Synced' : 'Local only'}</p></div>
+          <div className="card card-stat p-5"><p className="text-sm text-slate-400">Robot API</p><p className="text-lg font-bold">{env?.hasRobotApiKey ? 'Configured' : 'Missing key'}</p></div>
+          <div className="card card-stat p-5"><p className="text-sm text-slate-400">Deployment</p><p className="text-lg font-bold">{env?.productionReady ? 'Ready' : 'Needs setup'}</p></div>
+          <div className="card card-stat p-5"><p className="text-sm text-slate-400">Mobile / PWA</p><p className="text-lg font-bold">Installable</p></div>
+        </div>
+
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Library / History</h2>
+        <div className="mb-7 grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr]">
+          <div className="card card-list p-5">
+            <p className="text-sm text-slate-400">Saved sessions</p>
             {savedSessions.length ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="mt-3 space-y-2">
                 {savedSessions.map((session) => (
-                  <Link key={session.id} className="btn-secondary text-xs" href={`/session/${session.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(session.id)}`}>
+                  <Link key={session.id} className="block rounded-lg border border-slate-700 bg-slate-950/40 p-3 text-sm transition hover:border-amber-400/40" href={`/session/${session.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(session.id)}`}>
                     {session.workflow_id || 'workflow'} · step {session.current_step || 1}
                   </Link>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-slate-500">No saved sessions yet.</p>
+              <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/40 p-4">
+                <p className="font-semibold text-white">No saved sessions yet</p>
+                <p className="mt-1 text-sm text-slate-400">Start your first guided run and it will appear here.</p>
+                <Link href="/workflows/new" className="btn-primary btn-sm mt-3 inline-flex">Start workflow</Link>
+              </div>
             )}
           </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Workflow library</p>
+            <p className="text-3xl font-black">{generatedCount + sampleWorkflows.length}</p>
+            <p className="text-xs text-slate-500">Last source: generated + starter workflows</p>
+            <Link href="/workflows/saved" className="btn-secondary btn-sm mt-3 inline-flex">Open Library</Link>
+          </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Beta feedback</p>
+            <p className="text-3xl font-black">{feedbackCount}</p>
+            <p className="text-xs text-slate-500">Open items waiting for triage</p>
+            <Link href="/feedback" className="btn-secondary btn-sm mt-3 inline-flex">Review feedback</Link>
+          </div>
         </div>
+
+        <div className="mb-7 grid gap-4 md:grid-cols-[1.4fr_1fr]">
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Robot readiness score</p>
+            <p className="text-3xl font-black">{robotReadiness}/100</p>
+            <p className="text-xs text-slate-500">Missing: {missing.length ? missing.join(', ') : 'No blockers'}</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Version</p>
+            <p className="text-lg font-bold">TaskPilot {TASKPILOT_VERSION}</p>
+            <p className="text-xs text-slate-500">Dark/navy/gold beta environment</p>
+          </div>
+        </div>
+
         <h2 className="mb-4 text-xl font-black">Starter workflows</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {sampleWorkflows.map((workflow) => <WorkflowCard key={workflow.id} workflow={workflow} />)}
         </div>
-        <p className="mt-6 text-xs text-slate-500">TaskPilot version {TASKPILOT_VERSION}</p>
       </section>
     </main>
   );

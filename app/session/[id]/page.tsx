@@ -468,8 +468,8 @@ export default function SessionPage() {
               <div className="h-2 rounded-full bg-amber-400" style={{ width: `${Math.round((session.completed_steps.length / Math.max(1, workflow.steps.length)) * 100)}%` }} />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Link href="/daily" className="btn-secondary">Daily Mode</Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/daily" className="btn-ghost">Daily Mode</Link>
             <ModeSelector value={session.mode} onChange={(mode) => setSession((prev) => ({ ...prev, mode }))} />
           </div>
         </div>
@@ -495,10 +495,10 @@ export default function SessionPage() {
         )}
         {savedBanner && <div className="mb-5 rounded-xl border border-emerald-400/50 bg-emerald-400/10 p-3 text-sm text-emerald-200">Workflow snapshot saved locally.</div>}
         <div className="mb-3 flex flex-wrap gap-2 lg:hidden">
-          <button className={`btn-secondary text-xs ${mobileTab === 'step' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('step')}>Step</button>
-          <button className={`btn-secondary text-xs ${mobileTab === 'ai' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('ai')}>AI</button>
-          <button className={`btn-secondary text-xs ${mobileTab === 'proof' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('proof')}>Proof</button>
-          <button className={`btn-secondary text-xs ${mobileTab === 'tracker' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('tracker')}>Tracker</button>
+          <button className={`btn-secondary btn-sm ${mobileTab === 'step' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('step')}>Step</button>
+          <button className={`btn-secondary btn-sm ${mobileTab === 'ai' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('ai')}>AI</button>
+          <button className={`btn-secondary btn-sm ${mobileTab === 'proof' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('proof')}>Proof</button>
+          <button className={`btn-secondary btn-sm ${mobileTab === 'tracker' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab('tracker')}>Tracker</button>
         </div>
         <div className="mb-4 card p-4 lg:hidden">
           <p className="text-sm text-slate-400">Progress</p>
@@ -555,11 +555,12 @@ export default function SessionPage() {
               />
             )}
             <div className="card p-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">Workflow controls</p>
               <div className="flex flex-wrap gap-2">
-                <button onClick={markBlocked} className="btn-secondary">Mark Blocked</button>
-                <button onClick={resolveBlocked} className="btn-secondary">Resolve Blocker</button>
-                <button onClick={completeWorkflow} className="btn-secondary">Complete Workflow</button>
-                <button onClick={generateReport} className="btn-secondary">Generate Report</button>
+                <button onClick={markBlocked} className="btn-secondary btn-sm">Mark Blocked</button>
+                <button onClick={resolveBlocked} className="btn-ghost btn-sm">Resolve Blocker</button>
+                <button onClick={completeWorkflow} className="btn-ghost btn-sm">Complete Workflow</button>
+                <button onClick={generateReport} className="btn-secondary btn-sm">Generate Report</button>
               </div>
               {systemNotice && <p className="mt-3 text-sm text-slate-300">{systemNotice}</p>}
             </div>
