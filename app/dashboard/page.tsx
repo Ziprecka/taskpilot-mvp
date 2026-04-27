@@ -6,6 +6,7 @@ import { Nav } from '@/components/Nav';
 import { WorkflowCard } from '@/components/WorkflowCard';
 import { sampleWorkflows } from '@/data/sampleWorkflows';
 import { TASKPILOT_VERSION } from '@/lib/version';
+import { getFeedbackStorageKey, getGeneratedWorkflowsStorageKey } from '@/lib/storage';
 
 export default function DashboardPage() {
   const [env, setEnv] = useState<any>(null);
@@ -30,13 +31,13 @@ export default function DashboardPage() {
     }
     setSavedSessions(values.slice(0, 3));
     try {
-      const generated = JSON.parse(localStorage.getItem('taskpilot-generated-workflows') || '[]');
+      const generated = JSON.parse(localStorage.getItem(getGeneratedWorkflowsStorageKey()) || '[]');
       setGeneratedCount(Array.isArray(generated) ? generated.length : 0);
     } catch {
       setGeneratedCount(0);
     }
     try {
-      const feedback = JSON.parse(localStorage.getItem('taskpilot-feedback-items') || '[]');
+      const feedback = JSON.parse(localStorage.getItem(getFeedbackStorageKey()) || '[]');
       setFeedbackCount(Array.isArray(feedback) ? feedback.filter((item: any) => item.status !== 'fixed').length : 0);
     } catch {
       setFeedbackCount(0);

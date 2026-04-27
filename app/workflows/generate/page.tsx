@@ -37,6 +37,8 @@ export default function GenerateWorkflowPage() {
   const [editing, setEditing] = useState(false);
   const [improving, setImproving] = useState(false);
   const [runMode, setRunMode] = useState<'guided' | 'fast_checklist' | 'debug' | 'proof' | 'robot'>('guided');
+  const [notice, setNotice] = useState('');
+  const [requiresLoginToSave, setRequiresLoginToSave] = useState(false);
 
   async function generate() {
     setLoading(true);
@@ -46,6 +48,11 @@ export default function GenerateWorkflowPage() {
       body: JSON.stringify(form)
     });
     const payload = await res.json();
+    if (!payload?.ok) {
+      setNotice(payload?.error || 'Generation failed.');
+      setLoading(false);
+      return;
+    }
     const raw = payload.workflow as any;
     const id = raw.id || raw.slug || raw.workflow_name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const workflow: Workflow = {
@@ -88,6 +95,8 @@ export default function GenerateWorkflowPage() {
     };
     setGenerated(workflow);
     setSource(payload.source === 'openai' ? 'openai' : 'mock');
+    setRequiresLoginToSave(Boolean(payload.requires_login_to_save));
+    setNotice(payload.requires_login_to_save ? 'You are in demo mode. Login required to save workflows.' : '');
     setSaved(false);
     setWizardStep(2);
     setLoading(false);
@@ -195,6 +204,7 @@ export default function GenerateWorkflowPage() {
             <button className="btn-primary mt-4 w-full sm:w-auto" onClick={generate} disabled={loading || !form.goal.trim()}>
               {loading ? 'TaskPilot is turning your goal into a guided workflow...' : 'Generate Workflow'}
             </button>
+            {notice && <p className="mt-2 text-sm text-amber-300">{notice}</p>}
           </div>
         )}
 
@@ -266,7 +276,7 @@ export default function GenerateWorkflowPage() {
               <button className="btn-secondary" onClick={generate}>Regenerate</button>
               <button className="btn-secondary" onClick={improveWorkflow} disabled={improving}>{improving ? 'Improving...' : 'Improve Workflow'}</button>
               <button className="btn-secondary" onClick={() => setEditing((prev) => !prev)}>{editing ? 'Done Editing' : 'Edit workflow'}</button>
-              <button className="btn-primary" onClick={async () => generated && saveAndOptionallySync(generated)}>Save and Start</button>
+              <button className="btn-primary" onClick={async () => generated && !requiresLoginToSave && saveAndOptionallySync(generated)} disabled={requiresLoginToSave}>{requiresLoginToSave ? 'Login to Save' : 'Save and Start'}</button>
             </div>
           </div>
         )}

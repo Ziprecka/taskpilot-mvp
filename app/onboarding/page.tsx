@@ -16,6 +16,11 @@ export default function OnboardingPage() {
 
   function complete() {
     localStorage.setItem(STORAGE_KEY, 'true');
+    void fetch('/api/auth/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ onboarding_complete: true })
+    }).catch(() => null);
   }
 
   return (

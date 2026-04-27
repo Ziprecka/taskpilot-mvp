@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Nav } from '@/components/Nav';
+import { getFeedbackStorageKey } from '@/lib/storage';
 
 type FeedbackItem = {
   id: string;
@@ -14,8 +15,6 @@ type FeedbackItem = {
   status: string;
   created_at: string;
 };
-
-const STORAGE_KEY = 'taskpilot-feedback-items';
 
 export default function FeedbackPage() {
   const [items, setItems] = useState<FeedbackItem[]>([]);
@@ -32,7 +31,7 @@ export default function FeedbackPage() {
 
   useEffect(() => {
     try {
-      setItems(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
+      setItems(JSON.parse(localStorage.getItem(getFeedbackStorageKey()) || '[]'));
     } catch {
       setItems([]);
     }
@@ -41,7 +40,7 @@ export default function FeedbackPage() {
 
   function saveLocal(next: FeedbackItem[]) {
     setItems(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(getFeedbackStorageKey(), JSON.stringify(next));
   }
 
   async function submit() {

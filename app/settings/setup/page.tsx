@@ -20,8 +20,9 @@ interface HealthPayload {
 interface DbStatusPayload {
   ok: boolean;
   db_enabled: boolean;
-  schema: { installed: boolean };
+  schema: { installed: boolean; profilesTable?: boolean; usageEventsTable?: boolean };
   seed: { installed: boolean };
+  auth?: { currentUser?: boolean };
   next_fix: string;
 }
 
@@ -54,6 +55,10 @@ export default function SetupPage() {
     { label: 'Supabase DB enabled', ok: Boolean(health?.env.supabaseEnabled), fix: 'Set SUPABASE_DB_ENABLED=true in .env.local.' },
     { label: 'Schema installed', ok: Boolean(dbStatus?.schema?.installed), fix: 'Run supabase/schema.sql in Supabase SQL Editor.' },
     { label: 'Seed installed', ok: Boolean(dbStatus?.seed?.installed), fix: 'Run supabase/seed.sql after schema.' }
+    ,{ label: 'Auth ready', ok: Boolean(dbStatus?.auth?.currentUser), fix: 'Sign up or login to create an authenticated session.' }
+    ,{ label: 'Profiles table ready', ok: Boolean(dbStatus?.schema?.profilesTable), fix: 'Run updated supabase/schema.sql.' }
+    ,{ label: 'Usage tracking ready', ok: Boolean(dbStatus?.schema?.usageEventsTable), fix: 'Run updated supabase/schema.sql.' }
+    ,{ label: 'Billing prep ready', ok: true, fix: 'Configure Stripe env vars when ready.' }
   ];
 
   return (

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAIClient } from '@/lib/openai';
+import { getCurrentUserId, getUserProfile } from '@/lib/auth';
+import { getSupabaseAdminClient } from '@/lib/supabase/admin';
+import { trackUsageEvent } from '@/lib/usage';
 
 function slugify(input: string) {
   return input
@@ -75,8 +78,36 @@ function buildMockWorkflow(body: any) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
+  const userId = await getCurrentUserId();
+  if (userId) {
+    const profile = await getUserProfile(userId);
+    if ((profile?.plan || 'free') === 'free') {
+      const admin = getSupabaseAdminClient();
+      if (admin) {
+        const monthStart = new Date();
+        monthStart.setUTCDate(1);
+        monthStart.setUTCHours(0, 0, 0, 0);
+        const usage = await admin
+          .from('usage_events')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .eq('event_type', 'workflow_generated')
+          .gte('created_at', monthStart.toISOString());
+        if ((usage.count || 0) >= 3 && process.env.NODE_ENV === 'production') {
+          return NextResponse.json({
+            ok: false,
+            error: 'Free plan limit reached: 3 generated workflows/month.',
+            upgrade_required: true
+          }, { status: 402 });
+        }
+      }
+    }
+  }
   const client = getOpenAIClient();
-  if (!client) return NextResponse.json({ ok: true, workflow: buildMockWorkflow(body), source: 'mock' });
+  if (!client) {
+    if (userId) await trackUsageEvent(userId, 'workflow_generated', { source: 'mock' });
+    return NextResponse.json({ ok: true, workflow: buildMockWorkflow(body), source: 'mock', requires_login_to_save: !userId });
+  }
   try {
     const prompt = `Generate a practical workflow JSON with keys:
 workflow_name,slug,category,difficulty,goal,description,estimated_time,required_tools,required_materials,prerequisites,success_definition,failure_conditions,steps,completion_criteria,verification_plan,generation_quality,report_template.
@@ -123,8 +154,10 @@ Rules:
         improvement_suggestions: []
       };
     }
-    return NextResponse.json({ ok: true, workflow: merged, source: 'openai' });
+    if (userId) await trackUsageEvent(userId, 'workflow_generated', { source: 'openai' });
+    return NextResponse.json({ ok: true, workflow: merged, source: 'openai', requires_login_to_save: !userId });
   } catch (error) {
-    return NextResponse.json({ ok: true, workflow: buildMockWorkflow(body), source: 'mock', error: error instanceof Error ? error.message : 'generation_failed' });
+    if (userId) await trackUsageEvent(userId, 'workflow_generated', { source: 'mock_fallback_on_error' });
+    return NextResponse.json({ ok: true, workflow: buildMockWorkflow(body), source: 'mock', error: error instanceof Error ? error.message : 'generation_failed', requires_login_to_save: !userId });
   }
 }

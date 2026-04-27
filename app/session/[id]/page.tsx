@@ -10,7 +10,7 @@ import { AIChatPanel } from '@/components/AIChatPanel';
 import { ModeSelector } from '@/components/ModeSelector';
 import { UploadPanel } from '@/components/UploadPanel';
 import { getWorkflowById } from '@/data/sampleWorkflows';
-import { clampNotes, clampUploads, getSessionStorageKey } from '@/lib/storage';
+import { clampNotes, clampUploads, getGeneratedWorkflowsStorageKey, getSessionStorageKey } from '@/lib/storage';
 import { loadSessionFromSupabase, saveNote, saveReport, saveSessionState, saveUpload, syncSessionToSupabase, toCanonicalSessionState } from '@/lib/sessionPersistence';
 import type { AIResponse, ChatMessage, SessionNote, SessionUpload, TaskPilotSessionState, WorkflowMode, WorkflowSession } from '@/types/workflow';
 
@@ -67,7 +67,7 @@ export default function SessionPage() {
   useEffect(() => {
     setWorkflow(getWorkflowById(params.id));
     try {
-      const raw = localStorage.getItem('taskpilot-generated-workflows');
+      const raw = localStorage.getItem(getGeneratedWorkflowsStorageKey());
       if (!raw) return;
       const generated = JSON.parse(raw);
       if (!Array.isArray(generated)) return;
