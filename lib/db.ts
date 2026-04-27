@@ -1,5 +1,6 @@
 import { getServerEnvStatus } from '@/lib/env';
 import { getSupabaseAdminClient } from '@/lib/supabase/admin';
+import { getCurrentUserId } from '@/lib/auth';
 
 export function getDbGuard() {
   const env = getServerEnvStatus();
@@ -29,4 +30,18 @@ export function getDbGuard() {
     return { ok: false as const, status: 500, body: { ok: false, db_enabled: true, reason: 'Supabase admin client unavailable.' } };
   }
   return { ok: true as const, supabase };
+}
+
+export async function getDbUserGuard() {
+  const guard = getDbGuard();
+  if (!guard.ok) return guard;
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    return {
+      ok: false as const,
+      status: 401,
+      body: { ok: false, error: 'Authentication required.' }
+    };
+  }
+  return { ok: true as const, supabase: guard.supabase, userId };
 }

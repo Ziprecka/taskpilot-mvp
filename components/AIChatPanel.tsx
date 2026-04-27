@@ -237,7 +237,7 @@ export function AIChatPanel({
         {messages.map((m) => (
           <div key={m.id} className={`rounded-xl p-3 text-sm ${m.role === 'assistant' ? 'bg-slate-800/80 text-slate-100' : 'bg-amber-400/15 text-amber-100'}`}>
             <p className="mb-1 text-xs font-bold uppercase tracking-widest text-slate-500">{m.role}</p>
-            {m.role === 'assistant' ? <AIMessageCard content={m.content} meta={{ aiResponse: m.ai_response }} onMarkStepComplete={onMarkStepCompleteFromAI} /> : <p className="whitespace-pre-wrap">{m.content}</p>}
+            {m.role === 'assistant' ? <AIMessageCard messageId={m.id} sessionId={session.id} content={m.content} meta={{ aiResponse: m.ai_response }} onMarkStepComplete={onMarkStepCompleteFromAI} /> : <p className="whitespace-pre-wrap">{m.content}</p>}
           </div>
         ))}
         {loading && <p className="text-sm text-slate-400">TaskPilot is thinking...</p>}

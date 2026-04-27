@@ -1,6 +1,16 @@
 import type { WorkflowStep } from '@/types/workflow';
 
-export function StepTracker({ steps, currentStep, completedSteps }: { steps: WorkflowStep[]; currentStep: number; completedSteps: number[] }) {
+export function StepTracker({
+  steps,
+  currentStep,
+  completedSteps,
+  proofStatusByStep
+}: {
+  steps: WorkflowStep[];
+  currentStep: number;
+  completedSteps: number[];
+  proofStatusByStep?: Record<string, 'not_required' | 'required_missing' | 'submitted' | 'accepted' | 'overridden'>;
+}) {
   return (
     <div className="card max-h-[calc(100vh-220px)] overflow-y-auto p-5">
       <h2 className="mb-4 text-sm font-bold uppercase tracking-widest text-slate-400">Step Tracker</h2>
@@ -15,6 +25,9 @@ export function StepTracker({ steps, currentStep, completedSteps }: { steps: Wor
                 <div>
                   <p className="text-sm font-bold text-white">{step.title}</p>
                   <p className="text-xs text-slate-400">{active ? 'Active now' : done ? 'Complete' : 'Waiting'}</p>
+                  {proofStatusByStep?.[String(step.step_number)] && (
+                    <p className="text-[11px] text-slate-500">Proof: {proofStatusByStep[String(step.step_number)]}</p>
+                  )}
                 </div>
               </div>
             </div>

@@ -66,6 +66,7 @@ create table if not exists public.session_events (
 
 create table if not exists public.ai_messages (
   id uuid primary key default gen_random_uuid(),
+  user_id text not null default 'local-dev-user',
   session_id uuid references public.workflow_sessions(id) on delete cascade,
   role text not null,
   content text not null,
@@ -75,6 +76,7 @@ create table if not exists public.ai_messages (
 
 create table if not exists public.session_notes (
   id uuid primary key default gen_random_uuid(),
+  user_id text not null default 'local-dev-user',
   session_id uuid references public.workflow_sessions(id) on delete cascade,
   content text not null,
   created_at timestamptz default now()
@@ -82,6 +84,7 @@ create table if not exists public.session_notes (
 
 create table if not exists public.session_uploads (
   id uuid primary key default gen_random_uuid(),
+  user_id text not null default 'local-dev-user',
   session_id uuid references public.workflow_sessions(id) on delete cascade,
   name text not null,
   type text not null,
@@ -94,6 +97,7 @@ create table if not exists public.session_uploads (
 
 create table if not exists public.reports (
   id uuid primary key default gen_random_uuid(),
+  user_id text not null default 'local-dev-user',
   session_id uuid references public.workflow_sessions(id) on delete cascade,
   workflow_name text,
   goal text,
@@ -235,3 +239,66 @@ create index if not exists idx_robot_devices_robot_id on public.robot_devices(ro
 create index if not exists idx_robot_states_robot_id on public.robot_states(robot_id);
 create index if not exists idx_robot_events_robot_id on public.robot_events(robot_id);
 create index if not exists idx_robot_commands_robot_id_status on public.robot_commands(robot_id, status);
+
+create table if not exists public.feedback_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null default 'local-dev-user',
+  type text,
+  severity text,
+  area text,
+  description text,
+  expected_behavior text,
+  proof_url text,
+  status text default 'open',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists public.ai_message_feedback (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null default 'local-dev-user',
+  message_id text not null,
+  session_id text,
+  rating text not null,
+  comment text,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_feedback_items_status on public.feedback_items(status);
+create index if not exists idx_ai_message_feedback_message on public.ai_message_feedback(message_id);
+
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text,
+  full_name text,
+  avatar_url text,
+  plan text default 'free',
+  subscription_status text default 'free',
+  stripe_customer_id text,
+  stripe_subscription_id text,
+  trial_ends_at timestamptz,
+  onboarding_complete boolean default false,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists idx_profiles_email on public.profiles(email);
+create index if not exists idx_profiles_plan on public.profiles(plan);
+
+create table if not exists public.usage_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  event_type text,
+  metadata jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_usage_events_user on public.usage_events(user_id);
+create index if not exists idx_usage_events_type on public.usage_events(event_type);
+
+alter table public.profiles enable row level security;
+drop policy if exists "profiles_select_own" on public.profiles;
+create policy "profiles_select_own" on public.profiles for select using (auth.uid() = id);
+drop policy if exists "profiles_update_own" on public.profiles;
+create policy "profiles_update_own" on public.profiles for update using (auth.uid() = id);
+-- TODO: Add additional RLS policies for other tables before GA.

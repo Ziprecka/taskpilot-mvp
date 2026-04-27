@@ -13,16 +13,26 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
 
   async function signup() {
     setError('');
+    setStatus('');
+    if (!email || !password || !confirmPassword) return setError('Missing email or password.');
     if (password !== confirmPassword) return setError('Passwords do not match.');
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return setError('Supabase auth is not configured.');
+    const origin =
+      typeof window !== 'undefined'
+        ? window.location.origin
+        : process.env.NEXT_PUBLIC_SITE_URL || 'https://taskpilot.live';
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } }
+      options: {
+        data: { full_name: fullName },
+        emailRedirectTo: `${origin}/auth/callback`
+      }
     });
     if (signUpError) return setError(signUpError.message);
     if (data.user?.id) {
@@ -33,7 +43,11 @@ export default function SignupPage() {
         body: JSON.stringify({ full_name: fullName, email })
       }).catch(() => null);
     }
-    router.push('/onboarding');
+    if (data.session) {
+      router.push('/dashboard');
+      return;
+    }
+    setStatus('Account created. Check your email to confirm your account before logging in.');
   }
 
   return (
@@ -47,6 +61,7 @@ export default function SignupPage() {
           <input className="input mb-2" type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <input className="input mb-2" type="password" placeholder="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
           {error && <p className="mb-2 text-sm text-amber-300">{error}</p>}
+          {status && <p className="mb-2 text-sm text-emerald-300">{status}</p>}
           <button className="btn-primary w-full" onClick={signup}>Create account</button>
           <p className="mt-3 text-sm text-slate-400">Already have an account? <Link href="/login">Login</Link></p>
         </div>

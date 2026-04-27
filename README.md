@@ -18,6 +18,12 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_DB_ENABLED=false
+TASKPILOT_ROBOT_API_KEY=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+STRIPE_PRICE_PRO_MONTHLY=
+STRIPE_PRICE_TEAM_MONTHLY=
 ```
 
 ## 3) Run
@@ -58,3 +64,16 @@ http://localhost:3000/settings/setup
 
 - If OpenAI key is missing/invalid, TaskPilot uses Mock Mode.
 - Supabase DB routes gracefully fall back to local mode when disabled.
+
+## Supabase Auth setup
+
+In Supabase Auth URL configuration, add redirects:
+
+- `http://localhost:3000/auth/callback`
+- `https://taskpilot.live/auth/callback`
+- `https://taskpilot.live/dashboard`
+
+## Deployment (Vercel)
+
+Set all required env vars in Vercel Project Settings, then redeploy.
+Keep framework preset as Next.js and output directory blank.

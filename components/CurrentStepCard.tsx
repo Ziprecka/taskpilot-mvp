@@ -3,8 +3,12 @@ import type { WorkflowStep } from '@/types/workflow';
 export function CurrentStepCard({
   step,
   onComplete,
+  onOverrideComplete,
+  onAddProof,
   nextAction,
   status,
+  mode,
+  hasProof,
   syncStatus,
   lastSavedAt,
   onBlocked,
@@ -13,14 +17,20 @@ export function CurrentStepCard({
 }: {
   step: WorkflowStep;
   onComplete: () => void;
+  onOverrideComplete: () => void;
+  onAddProof: () => void;
   nextAction?: string;
   status: 'active' | 'blocked' | 'complete';
+  mode: string;
+  hasProof: boolean;
   syncStatus: 'local' | 'syncing' | 'synced' | 'error';
   lastSavedAt: string;
   onBlocked: () => void;
   onAskExplain: () => void;
   onAskDebug: () => void;
 }) {
+  const proofRequired = Boolean(step.proof_required);
+  const needsProof = mode === 'proof' && proofRequired && !hasProof;
   return (
     <div className="card p-6">
       <div className="mb-2 flex items-center justify-between">
@@ -47,8 +57,23 @@ export function CurrentStepCard({
         <h3 className="mb-2 text-sm font-bold text-amber-200">AI next action</h3>
         <p className="text-sm text-amber-100">{nextAction || 'Ask TaskPilot "what next" to generate the next action.'}</p>
       </div>
+      {proofRequired && (
+        <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/40 p-4 text-sm text-slate-300">
+          <h3 className="mb-1 font-semibold text-white">Proof expected</h3>
+          <p>{step.proof_required}</p>
+        </div>
+      )}
+      {needsProof && (
+        <div className="mt-4 rounded-xl border border-amber-500/50 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <p>This step expects proof. Add proof first or override.</p>
+          <div className="mt-2 flex gap-2">
+            <button onClick={onAddProof} className="btn-secondary text-xs">Add Proof</button>
+            <button onClick={onOverrideComplete} className="btn-secondary text-xs">Override Complete</button>
+          </div>
+        </div>
+      )}
       <div className="mt-5 flex flex-wrap gap-2">
-        <button onClick={onComplete} className="btn-primary">Mark step complete</button>
+        <button onClick={needsProof ? onAddProof : onComplete} className="btn-primary">Mark Complete</button>
         <button onClick={onBlocked} className="btn-secondary">I'm blocked</button>
         <button onClick={onAskExplain} className="btn-secondary">Ask AI to explain</button>
         <button onClick={onAskDebug} className="btn-secondary">Ask AI to debug</button>

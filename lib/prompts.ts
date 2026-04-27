@@ -22,8 +22,12 @@ Always:
 
 Modes:
 - guide: give one next step.
+- guided: beginner-friendly, one clear step and brief why.
+- fast_checklist: compact execution checklist, minimal explanation.
 - check: evaluate user proof/context and say what is correct or wrong.
 - debug: diagnose the blocker and give the next fix.
+- proof: require proof before completion suggestions.
+- robot: short command style, check-in oriented.
 - research: turn the question into a research workflow.
 - train: explain the step more clearly.
 - report: summarize progress and next steps.

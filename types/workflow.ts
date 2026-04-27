@@ -1,4 +1,14 @@
-export type WorkflowMode = 'guide' | 'check' | 'debug' | 'research' | 'train' | 'report';
+export type WorkflowMode =
+  | 'guide'
+  | 'check'
+  | 'debug'
+  | 'research'
+  | 'train'
+  | 'report'
+  | 'guided'
+  | 'fast_checklist'
+  | 'proof'
+  | 'robot';
 export type WorkflowCategory =
   | 'electronics'
   | 'coding'
@@ -14,12 +24,16 @@ export type Confidence = 'low' | 'medium' | 'high';
 export interface WorkflowStep {
   step_number: number;
   title: string;
+  objective?: string;
   instructions: string;
   expected_state: string;
+  proof_required?: string;
   visual_checks: string[];
   common_mistakes: string[];
   troubleshooting: string[];
   completion_criteria: string;
+  estimated_minutes?: number;
+  ai_check_prompt?: string;
 }
 
 export interface Workflow {
@@ -41,10 +55,16 @@ export interface Workflow {
   };
   generation_quality?: {
     specificity_score: number;
+    actionability_score?: number;
+    verifiability_score?: number;
+    estimated_usefulness_score?: number;
     usability_score: number;
     missing_details: string[];
     improvement_suggestions: string[];
   };
+  success_definition?: string;
+  failure_conditions?: string[];
+  verification_plan?: string[];
 }
 
 export interface WorkflowSession {
@@ -60,6 +80,7 @@ export interface WorkflowSession {
   started_at: string;
   uploads: SessionUpload[];
   notes: SessionNote[];
+  proof_status_by_step?: Record<string, 'not_required' | 'required_missing' | 'submitted' | 'accepted' | 'overridden'>;
 }
 
 export interface SessionUpload {

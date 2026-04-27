@@ -10,10 +10,12 @@ export default function RobotSettingsPage() {
   const [dbStatus, setDbStatus] = useState<any>(null);
   const [output, setOutput] = useState<string>('');
   const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('https://taskpilot.live');
 
   useEffect(() => {
     void fetch('/api/health').then((res) => res.json()).then(setHealth).catch(() => null);
     void fetch('/api/db/status').then((res) => res.json()).then(setDbStatus).catch(() => null);
+    if (typeof window !== 'undefined') setBaseUrl(window.location.origin);
   }, []);
 
   async function call(path: string, method: string, body?: unknown) {
@@ -81,7 +83,7 @@ export default function RobotSettingsPage() {
 
         <div className="card mt-5 p-5">
           <h3 className="mb-2 font-semibold text-white">Robot API curl example</h3>
-          <pre className="overflow-x-auto rounded-xl bg-slate-950/60 p-3 text-xs text-slate-300">{`curl -X POST http://localhost:3000/api/robot/register \\
+          <pre className="overflow-x-auto rounded-xl bg-slate-950/60 p-3 text-xs text-slate-300">{`curl -X POST ${baseUrl}/api/robot/register \\
   -H "Content-Type: application/json" \\
   -H "x-taskpilot-robot-key: YOUR_KEY" \\
   -d "{\\"robot_id\\":\\"deskbot_001\\",\\"name\\":\\"TaskPilot DeskBot\\",\\"device_type\\":\\"raspberry_pi\\",\\"capabilities\\":{\\"speaker\\":true,\\"microphone\\":true,\\"camera\\":true,\\"screen\\":true,\\"movement\\":false,\\"leds\\":true}}"`}</pre>
