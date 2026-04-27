@@ -7,7 +7,7 @@ import { WorkflowCard } from '@/components/WorkflowCard';
 import { sampleWorkflows } from '@/data/sampleWorkflows';
 import { addRecentActivity, getRecentActivity, type TaskPilotActivity } from '@/lib/activity';
 import { getPinnedWorkflowIds, togglePinnedWorkflow } from '@/lib/pinnedWorkflows';
-import { getFeedbackStorageKey, getGeneratedWorkflowsStorageKey } from '@/lib/storage';
+import { getDailyStorageKey, getFeedbackStorageKey, getGeneratedWorkflowsStorageKey } from '@/lib/storage';
 import { TASKPILOT_VERSION } from '@/lib/version';
 
 export default function DashboardPage() {
@@ -24,6 +24,8 @@ export default function DashboardPage() {
   const [streak, setStreak] = useState(0);
   const [weeklyOutcomes, setWeeklyOutcomes] = useState(0);
   const [weeklyFocusMinutes, setWeeklyFocusMinutes] = useState(0);
+  const [dailyState, setDailyState] = useState<any>(null);
+  const [prefs, setPrefs] = useState<any>(null);
 
   useEffect(() => {
     void fetch('/api/auth/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => null);
@@ -58,6 +60,19 @@ export default function DashboardPage() {
     }
     setOnboardingComplete(localStorage.getItem('taskpilot-onboarding-complete') === 'true');
     try {
+      const prefsRaw = localStorage.getItem('taskpilot-user-preferences');
+      setPrefs(prefsRaw ? JSON.parse(prefsRaw) : null);
+    } catch {
+      setPrefs(null);
+    }
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const dailyRaw = localStorage.getItem(getDailyStorageKey(today));
+      setDailyState(dailyRaw ? JSON.parse(dailyRaw) : null);
+    } catch {
+      setDailyState(null);
+    }
+    try {
       const reports = Object.keys(localStorage)
         .filter((key) => key.includes('taskpilot-daily-'))
         .map((key) => {
@@ -87,11 +102,23 @@ export default function DashboardPage() {
   ].filter(Boolean);
 
   const pinnedWorkflows = useMemo(() => sampleWorkflows.filter((w) => pinnedIds.includes(w.id)), [pinnedIds]);
+  const starterWorkflows = useMemo(() => {
+    const base = sampleWorkflows.filter((w) => w.id !== 'taskpilot-mvp-build');
+    if (!prefs?.work_type) return base;
+    if (String(prefs.work_type).includes('money')) return base.filter((w) => w.category === 'business_sop' || w.id === 'daily-top-3-planning');
+    if (String(prefs.work_type).includes('building')) return base.filter((w) => w.category === 'coding' || w.category === 'deployment' || w.id === 'daily-top-3-planning' || w.id === 'record-product-demo');
+    if (String(prefs.work_type).includes('research')) return base.filter((w) => w.category === 'research' || w.category === 'productivity');
+    return base;
+  }, [prefs]);
   const recommended = !onboardingComplete
     ? { title: 'Finish onboarding', reason: 'Personalize recommendations and coaching style.', href: '/onboarding', cta: 'Continue onboarding' }
-    : latestSession
-      ? { title: 'Continue your active session', reason: `Pick up where you left off on ${latestSession.workflow_id || 'your workflow'}.`, href: `/session/${latestSession.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(latestSession.id)}`, cta: 'Continue session' }
-      : { title: 'Plan your day in Daily Mode', reason: 'Define top outcomes before diving into tasks.', href: '/daily', cta: 'Open Daily Mode' };
+    : dailyState?.active_focus_block?.status === 'active'
+      ? { title: 'Continue focus block', reason: `Resume execution on ${dailyState.active_focus_block.title}.`, href: '/daily', cta: 'Open Daily' }
+      : dailyState?.outcomes?.length
+        ? { title: 'Start your highest-leverage next move', reason: 'You already planned outcomes. Start one focused block now.', href: '/daily', cta: 'Start focus' }
+        : latestSession
+          ? { title: 'Continue active workflow', reason: `Pick up where you left off on ${latestSession.workflow_id || 'your workflow'}.`, href: `/session/${latestSession.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(latestSession.id)}`, cta: 'Continue session' }
+          : { title: prefs?.first_action === 'generate a workflow' ? 'Generate your first workflow' : 'Plan today', reason: 'Your next move, not another to-do list.', href: prefs?.first_action === 'generate a workflow' ? '/workflows/generate' : '/daily', cta: prefs?.first_action === 'generate a workflow' ? 'Generate workflow' : 'Plan today' };
 
   const tools = {
     Setup: [
@@ -103,6 +130,8 @@ export default function DashboardPage() {
     Work: [
       { href: '/workflows/saved', title: 'Workflow Library', desc: 'Browse and pin workflows' },
       { href: '/sessions', title: 'Saved Sessions', desc: 'Resume previous workflow runs' },
+      { href: '/reports', title: 'Reports', desc: 'Review daily and workflow reports' },
+      { href: '/proof', title: 'Proof Log', desc: 'View proof-backed progress entries' },
       { href: '/demo', title: 'Demo Mode', desc: 'Guided beta demo surface' },
       { href: '/feedback', title: 'Feedback', desc: 'Track product issues and suggestions' }
     ],
@@ -122,6 +151,7 @@ export default function DashboardPage() {
               <p className="badge mb-3">Execution cockpit</p>
               <h1 className="text-3xl font-black md:text-4xl">TaskPilot Dashboard</h1>
               <p className="mt-2 text-slate-400">Know what to do next, run focused execution, and track progress in one place.</p>
+              <p className="mt-1 text-xs text-amber-200">Free Beta</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link href="/workflows/new" className="btn-primary">Start workflow</Link>
@@ -147,7 +177,7 @@ export default function DashboardPage() {
 
         <div className="mb-7 grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr]">
           <div className="card card-list p-5">
-            <p className="text-sm text-slate-400">Recent sessions</p>
+            <p className="text-sm text-slate-400">Active workflows</p>
             {savedSessions.length ? (
               <div className="mt-3 space-y-2">
                 {savedSessions.map((session) => (
@@ -165,13 +195,13 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="card p-5">
-            <p className="text-sm text-slate-400">Daily command center</p>
+            <p className="text-sm text-slate-400">Today&apos;s execution</p>
             <p className="mt-1 text-xl font-bold">Plan today&apos;s top 3 outcomes</p>
             <p className="mt-1 text-xs text-slate-500">Convert outcomes into focus blocks and execution proof.</p>
             <Link href="/daily" className="btn-secondary btn-sm mt-3 inline-flex">Open Daily Mode</Link>
           </div>
           <div className="card p-5">
-            <p className="text-sm text-slate-400">System status</p>
+            <p className="text-sm text-slate-400">System readiness</p>
             <p className="mt-1 text-sm text-slate-300">AI: {env?.hasOpenAIKey ? 'OpenAI' : 'Mock'}</p>
             <p className="text-sm text-slate-300">Supabase: {env?.supabaseEnabled ? 'Synced' : 'Local only'}</p>
             <p className="text-sm text-slate-300">Robot readiness: {robotReadiness}/100</p>
@@ -213,6 +243,15 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+          <div className="card p-5">
+            <p className="text-sm text-slate-400">Reports</p>
+            <p className="mt-1 text-xl font-bold">Review your execution history</p>
+            <p className="mt-1 text-xs text-slate-500">Daily closeouts and workflow reports in one place.</p>
+            <div className="mt-3 flex gap-2">
+              <Link href="/reports" className="btn-secondary btn-sm inline-flex">Open reports</Link>
+              <Link href="/proof" className="btn-ghost btn-sm inline-flex">Open proof log</Link>
+            </div>
+          </div>
         </div>
 
         <div className="mb-7 grid gap-4 md:grid-cols-3">
@@ -235,7 +274,7 @@ export default function DashboardPage() {
 
         <h2 className="mb-4 text-xl font-black">Starter workflows</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {sampleWorkflows.map((workflow) => (
+          {starterWorkflows.map((workflow) => (
             <WorkflowCard
               key={workflow.id}
               workflow={workflow}

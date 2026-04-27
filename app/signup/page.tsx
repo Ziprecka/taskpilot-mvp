@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Nav } from '@/components/Nav';
+import { trackProductEvent } from '@/lib/productEvents';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export default function SignupPage() {
@@ -37,6 +38,7 @@ export default function SignupPage() {
     if (signUpError) return setError(signUpError.message);
     if (data.user?.id) {
       localStorage.setItem('taskpilot-auth-user-id', data.user.id);
+      await trackProductEvent('signup', '/signup', { email });
       await fetch('/api/auth/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

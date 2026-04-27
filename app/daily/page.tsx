@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Nav } from '@/components/Nav';
 import { useToast } from '@/components/ToastProvider';
 import { addRecentActivity } from '@/lib/activity';
-import { getDailyStorageKey } from '@/lib/storage';
+import { trackProductEvent } from '@/lib/productEvents';
+import { getDailyStorageKey, getReportsStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
 import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyEvent, DailyOutcome, DailyReport, FocusBlock, Workflow } from '@/types/workflow';
 
@@ -217,6 +218,7 @@ export default function DailyPage() {
     updateState((prev) => ({ ...prev, outcomes: [...prev.outcomes, outcome].slice(0, 3) }));
     logEvent('created_outcome', `Outcome created: ${seed}`);
     addRecentActivity({ type: 'daily_outcome_created', title: seed, route: '/daily' });
+    void trackProductEvent('daily_plan_created', '/daily', { title: seed, dayType });
     pushToast('Outcome added.');
   }
 
@@ -243,6 +245,7 @@ export default function DailyPage() {
       outcomes: chosen.slice(0, 3).map((item, idx) => ({ ...item, priority: Math.min(3, idx + 1) as 1 | 2 | 3 }))
     }));
     logEvent('generated_top3', `Planned top 3 outcomes for ${dayType} day.`);
+    void trackProductEvent('daily_plan_created', '/daily', { dayType, count: chosen.length });
     pushToast('Daily plan accepted.');
     setShowPlanReview(false);
   }
@@ -281,6 +284,7 @@ export default function DailyPage() {
     }));
     logEvent('started_focus', `Focus started: ${outcome.title}`);
     addRecentActivity({ type: 'focus_started', title: `Focus started for ${outcome.title}`, route: '/daily' });
+    void trackProductEvent('focus_started', '/daily', { outcome_id: outcome.id, title: outcome.title });
     pushToast('Focus block started.');
   }
 
@@ -347,7 +351,25 @@ export default function DailyPage() {
       outcomes: prev.outcomes.map((o) => o.id === id ? { ...o, proof_provided: proof, updated_at: nowIso() } : o)
     }));
     logEvent('proof_added', 'Proof logged.');
+    void trackProductEvent('proof_logged', '/daily', { outcome_id: id });
     pushToast('Proof logged.');
+  }
+
+  function refineOutcome(id: string) {
+    updateState((prev) => ({
+      ...prev,
+      outcomes: prev.outcomes.map((o) => {
+        if (o.id !== id) return o;
+        const refinedTitle = /research|prototype|antigravity|improve/i.test(o.title)
+          ? `Create a one-day feasibility brief for "${o.title}" with 3 sources, 3 constraints, and 3 open questions`
+          : `${o.title} (one-day scoped with visible proof)`;
+        const quality = evaluateOutcomeQuality(refinedTitle, o.proof_required || 'Visible artifact');
+        const score = Math.round((quality.clarity + quality.realism + quality.proofability + quality.daily_scope + quality.value) / 5);
+        return { ...o, title: refinedTitle, quality_score: score, updated_at: nowIso() };
+      })
+    }));
+    logEvent('created_outcome', 'Outcome refined for clarity and proofability.');
+    pushToast('Outcome refined.');
   }
 
   async function convertOutcomeToWorkflow(id: string) {
@@ -442,7 +464,15 @@ export default function DailyPage() {
       created_at: nowIso()
     };
     updateState((prev) => ({ ...prev, status: 'complete', report }));
+    try {
+      const raw = localStorage.getItem(getReportsStorageKey());
+      const list = raw ? JSON.parse(raw) : [];
+      localStorage.setItem(getReportsStorageKey(), JSON.stringify([{ id: report.id, type: 'daily', report, created_at: report.created_at }, ...(Array.isArray(list) ? list : [])].slice(0, 200)));
+    } catch {
+      // ignore local report indexing failure
+    }
     logEvent('report_generated', 'Daily report generated.');
+    void trackProductEvent('daily_report_generated', '/daily', { report_id: report.id, execution_score: report.execution_score });
     addRecentActivity({ type: 'daily_report_generated', title: 'Daily report generated', route: '/daily' });
     pushToast('Day closed with report.');
   }
@@ -471,6 +501,19 @@ export default function DailyPage() {
     .filter((o) => o.status !== 'done')
     .sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0];
   const shownEvents = showAllEvents ? state.events : state.events.slice(0, 10);
+  const completedToday = state.outcomes.filter((o) => o.status === 'done').length;
+  const focusMinutesToday = state.active_focus_block?.actual_minutes || state.outcomes.reduce((sum, o) => sum + (o.actual_minutes || 0), 0);
+  const dailyStreak = useMemo(() => {
+    if (typeof window === 'undefined') return 0;
+    return Object.keys(localStorage).filter((key) => key.includes('taskpilot-daily-')).reduce((sum, key) => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+        return parsed?.report ? sum + 1 : sum;
+      } catch {
+        return sum;
+      }
+    }, 0);
+  }, []);
 
   function safeAction(label: string, handler?: () => void) {
     if (!handler) {
@@ -489,6 +532,7 @@ export default function DailyPage() {
             <p className="badge mb-2">Today&apos;s execution cockpit</p>
             <h1 className="text-3xl font-black">Daily Command Center</h1>
             <p className="mt-1 text-sm text-slate-400">{state.date} · Status: {state.status}</p>
+            <p className="mt-1 text-xs text-slate-500">Streak: {dailyStreak} · Completed today: {completedToday} · Focus minutes: {focusMinutesToday}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="badge">AI: {aiMode === 'openai' ? 'OpenAI' : 'Mock'}</span>
@@ -501,6 +545,11 @@ export default function DailyPage() {
           {(['outcomes', 'focus', 'coach', 'timeline', 'report'] as DailyTab[]).map((tab) => (
             <button key={tab} className={`btn-secondary btn-sm ${mobileTab === tab ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab(tab)}>{tab[0].toUpperCase() + tab.slice(1)}</button>
           ))}
+        </div>
+
+        <div className="card mb-4 p-4">
+          <p className="text-xs uppercase tracking-widest text-slate-500">Daily value loop</p>
+          <p className="mt-1 text-sm text-slate-300">Plan -&gt; Focus -&gt; Proof -&gt; Report -&gt; Carry Forward</p>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr_1fr]">
@@ -543,6 +592,9 @@ export default function DailyPage() {
                         <p className="text-xs text-slate-500">Status: {isActive ? 'active' : outcome.status} · Est {outcome.estimated_minutes}m · Actual {outcome.actual_minutes}m</p>
                         <p className="text-xs text-slate-500">Proof: {outcome.proof_required} {outcome.proof_provided ? `· Logged: ${outcome.proof_provided}` : ''}</p>
                         <p className="text-xs text-slate-500">Quality: {quality}</p>
+                        {(quality === 'Needs clarity' || quality === 'Too broad' || quality === 'Not proofable') && (
+                          <button className="btn-ghost btn-sm mt-1" onClick={safeAction('Refine outcome', () => refineOutcome(outcome.id))}>Refine outcome</button>
+                        )}
                         {outcome.status === 'blocked' && <p className="mt-1 text-xs text-amber-200">Blocked: {outcome.blocker_note || 'Missing blocker detail.'}</p>}
                         <div className="mt-2 flex flex-wrap gap-2">
                           {outcome.status !== 'done' && <button className="btn-primary btn-sm" onClick={safeAction('Focus', () => startFocus(outcome.id))}>Focus</button>}

@@ -13,6 +13,8 @@ const COMMANDS: Command[] = [
   { label: 'Generate Workflow', href: '/workflows/generate' },
   { label: 'Open Workflow Library', href: '/workflows/saved' },
   { label: 'Open Saved Sessions', href: '/sessions' },
+  { label: 'Open Reports', href: '/reports' },
+  { label: 'Open Proof Log', href: '/proof' },
   { label: 'Start New Workflow', href: '/workflows/new' },
   { label: 'Demo', href: '/demo' },
   { label: 'Open Setup', href: '/settings/setup' },

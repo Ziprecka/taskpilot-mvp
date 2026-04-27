@@ -3,36 +3,28 @@ import { Nav } from '@/components/Nav';
 
 export default function HomePage() {
   const activeStep = 2;
-  const steps = ['Confirm parts', 'Connect Arduino', 'Place LED', 'Upload Blink', 'Verify output'];
+  const steps = ['Plan top 3 outcomes', 'Start focus block', 'Log proof', 'Generate report', 'Carry forward'];
   return (
     <main>
       <Nav />
       <section className="mx-auto grid max-w-7xl items-start gap-10 px-6 py-14 md:grid-cols-[1.05fr_.95fr]">
         <div>
-          <div className="badge mb-5">AI Workflow Copilot</div>
-          <h1 className="mb-4 max-w-4xl text-5xl font-black leading-tight md:text-7xl">GPS for getting things done.</h1>
-          <p className="mb-7 max-w-2xl text-lg text-slate-300">Turn repeatable digital or physical tasks into guided execution. TaskPilot tracks your step, checks proof, and keeps momentum without losing context.</p>
+          <div className="badge mb-5">Daily Execution System</div>
+          <h1 className="mb-4 max-w-4xl text-5xl font-black leading-tight md:text-7xl">Turn goals into completed work.</h1>
+          <p className="mb-7 max-w-2xl text-lg text-slate-300">TaskPilot helps you plan today&apos;s top outcomes, execute one focused step at a time, prove progress, and generate reports you can build on.</p>
           <div className="mb-4 flex flex-wrap gap-3">
-            <Link href="/dashboard" className="btn-primary">Open dashboard</Link>
+            <Link href="/signup" className="btn-primary">Start today&apos;s plan</Link>
             <Link href="/workflows/generate" className="btn-secondary">Generate workflow</Link>
-            <Link href="/daily" className="btn-secondary">Daily Mode</Link>
-          </div>
-          <div className="rounded-xl border border-slate-800/90 bg-slate-950/50 p-3">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">Utility Actions</p>
-            <div className="flex flex-wrap gap-2">
-              <Link href="/settings/setup" className="btn-ghost btn-sm">Setup</Link>
-              <Link href="/settings/deploy" className="btn-ghost btn-sm">Deploy</Link>
-              <Link href="/settings/mobile" className="btn-ghost btn-sm">Mobile</Link>
-            </div>
+            <Link href="/demo" className="btn-ghost">Watch demo</Link>
           </div>
         </div>
         <div className="card card-hero p-6 shadow-glow">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Currently active</p>
-              <h2 className="font-black">TaskPilot MVP Build Workflow</h2>
+              <h2 className="font-black">Today&apos;s execution loop</h2>
             </div>
-            <span className="badge">Guide mode</span>
+            <span className="badge">Operator view</span>
           </div>
           <div className="mb-4">
             <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
@@ -61,15 +53,15 @@ export default function HomePage() {
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
               <p className="text-xs text-slate-500">Step 1</p>
-              <p className="font-semibold">Generate or choose a workflow</p>
+              <p className="font-semibold">Plan proof-backed outcomes</p>
             </div>
             <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
               <p className="text-xs text-slate-500">Step 2</p>
-              <p className="font-semibold">Execute one step at a time with AI guidance</p>
+              <p className="font-semibold">Run focused execution blocks</p>
             </div>
             <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
               <p className="text-xs text-slate-500">Step 3</p>
-              <p className="font-semibold">Save progress, proof, and reports</p>
+              <p className="font-semibold">Log proof and generate progress reports</p>
             </div>
           </div>
         </div>

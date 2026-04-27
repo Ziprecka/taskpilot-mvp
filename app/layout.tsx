@@ -5,8 +5,8 @@ import { ToastProvider } from '@/components/ToastProvider';
 
 export const metadata: Metadata = {
   applicationName: 'TaskPilot',
-  title: 'TaskPilot — GPS for getting things done',
-  description: 'AI workflow copilot for physical and digital tasks.',
+  title: 'TaskPilot — Turn goals into completed work',
+  description: 'Daily execution system for proof-backed outcomes, focus blocks, workflows, and reports.',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,

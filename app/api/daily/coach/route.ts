@@ -33,6 +33,13 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
       personal: ['Complete one meaningful life admin task', 'Protect one deep-work block', 'Close one open loop'],
       custom: ['Define one high-impact outcome', 'Break it into first concrete action', 'Capture proof by day end']
     };
+    const custom = String(body?.customDirection || '').toLowerCase();
+    const generated = ensureScopedOutcomes(map[dayType] || map.personal);
+    const customGenerated = custom.includes('money') || custom.includes('sell')
+      ? ensureScopedOutcomes(['Send 10 targeted outreach messages', 'Follow up with 5 warm leads', 'Create one offer asset or landing page section'])
+      : custom.includes('build') || custom.includes('app')
+        ? ensureScopedOutcomes(['Ship one scoped feature', 'Fix one visible UX issue', 'Record a demo proving the improvement'])
+        : generated;
     return {
       direct_answer: 'Here is a focused top 3 for your day.',
       next_action: 'Pick #1 and start a 25-minute focus block now.',
@@ -41,7 +48,7 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
       focus_minutes: 25,
       drift_warning: '',
       priority_reason: 'Structured priorities reduce drift and improve completion odds.',
-      generated_outcomes: ensureScopedOutcomes(map[dayType] || map.personal)
+      generated_outcomes: customGenerated
     };
   }
   if (lower.includes('5 minute') || lower.includes('reduce')) {
@@ -103,10 +110,14 @@ Context priority:
 
 Rules:
 - Do NOT mention TaskPilot MVP unless user outcomes/focus explicitly mention it.
+- Always prioritize the user's selected use case and current outcomes.
 - If no outcomes: direct user to create top 3 outcomes.
 - If outcomes exist and no focus is active: pick highest leverage and suggest first action.
 - If focus is active: coach next action within focus scope.
 - For money questions: suggest concrete revenue/output actions.
+- Never generate fantasy or impossible execution outcomes.
+- Reframe unrealistic goals into a one-day feasible artifact with proof.
+- Every generated outcome must be one-day scoped, proof-backed, and include a first action.
 - Ban generic filler.
 
 Return strict JSON:

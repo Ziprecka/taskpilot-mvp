@@ -31,6 +31,18 @@ export function getFeedbackStorageKey() {
   return `taskpilot-feedback-${getStorageUserKey()}`;
 }
 
+export function getReportsStorageKey() {
+  return `taskpilot-reports-${getStorageUserKey()}`;
+}
+
+export function getProofStorageKey() {
+  return `taskpilot-proof-log-${getStorageUserKey()}`;
+}
+
+export function getProInterestStorageKey() {
+  return `taskpilot-pro-interest-${getStorageUserKey()}`;
+}
+
 export function clampUploads<T>(uploads: T[]): T[] {
   return uploads.slice(0, MAX_UPLOADS);
 }

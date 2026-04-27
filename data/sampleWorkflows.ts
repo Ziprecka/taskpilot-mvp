@@ -49,8 +49,8 @@ export const sampleWorkflows: Workflow[] = [
       { step_number: 2, title: 'Assign focus blocks', instructions: 'Schedule at least one focus block for each priority.', expected_state: 'Focus blocks on calendar.', visual_checks: [], common_mistakes: ['No time assignment'], troubleshooting: ['Assign exact time windows.'], completion_criteria: 'Focus blocks scheduled.' },
       { step_number: 3, title: 'Define proof for each priority', instructions: 'Decide what proof confirms completion.', expected_state: 'Proof criteria defined.', visual_checks: [], common_mistakes: ['No completion signal'], troubleshooting: ['Use visible deliverables.'], completion_criteria: 'Proof criteria set.' }
     ],
-    completion_criteria: 'Weekly execution plan is scheduled and measurable.',
-    report_template: { summary: 'Weekly execution plan created.', issues_found: [], fixes_made: [], recommendations: [] }
+    completion_criteria: 'One focused block is completed with visible proof.',
+    report_template: { summary: '25-minute focus block completed.', issues_found: [], fixes_made: [], recommendations: [] }
   },
   {
     id: 'taskpilot-mvp-build',
@@ -275,6 +275,40 @@ export const sampleWorkflows: Workflow[] = [
     ],
     completion_criteria: 'Blocked task has a concrete next step completed.',
     report_template: { summary: 'Stuck task cleared.', issues_found: [], fixes_made: [], recommendations: [] }
+  },
+  {
+    id: 'close-day-report',
+    workflow_name: 'Close the Day With a Report',
+    category: 'productivity',
+    difficulty: 'beginner',
+    estimated_time: '15 minutes',
+    required_tools: ['TaskPilot Daily'],
+    required_materials: [],
+    prerequisites: ['At least one outcome attempted today'],
+    steps: [
+      { step_number: 1, title: 'Review outcomes', instructions: 'Mark each outcome as done, blocked, or carry forward.', expected_state: 'Outcome statuses are current.', visual_checks: [], common_mistakes: ['Skipping blockers'], troubleshooting: ['Write blocker note for each blocked item.'], completion_criteria: 'Statuses updated.' },
+      { step_number: 2, title: 'Capture proof highlights', instructions: 'Log proof notes for completed outcomes.', expected_state: 'Proof notes exist.', visual_checks: [], common_mistakes: ['No proof evidence'], troubleshooting: ['Capture one sentence per completed result.'], completion_criteria: 'Proof logged.' },
+      { step_number: 3, title: 'Generate report', instructions: 'Generate and save daily report, then define tomorrow first action.', expected_state: 'Report generated and next action defined.', visual_checks: [], common_mistakes: ['No tomorrow action'], troubleshooting: ['Add one concrete first action for tomorrow.'], completion_criteria: 'Daily report complete.' }
+    ],
+    completion_criteria: 'Daily report saved with tomorrow first action.',
+    report_template: { summary: 'Close-the-day workflow completed.', issues_found: [], fixes_made: [], recommendations: [] }
+  },
+  {
+    id: 'record-product-demo',
+    workflow_name: 'Record a Product Demo',
+    category: 'productivity',
+    difficulty: 'beginner',
+    estimated_time: '35 minutes',
+    required_tools: ['Screen recorder', 'Script notes'],
+    required_materials: [],
+    prerequisites: ['Feature or deliverable to show'],
+    steps: [
+      { step_number: 1, title: 'Write demo outline', instructions: 'Draft intro, problem, solution, and proof sections.', expected_state: 'Demo structure exists.', visual_checks: [], common_mistakes: ['No clear story'], troubleshooting: ['Limit to one user outcome.'], completion_criteria: 'Outline ready.' },
+      { step_number: 2, title: 'Record first take', instructions: 'Record a full first take from start to finish.', expected_state: 'Raw recording exists.', visual_checks: [], common_mistakes: ['Stopping too often'], troubleshooting: ['Prioritize complete take over perfection.'], completion_criteria: 'First take saved.' },
+      { step_number: 3, title: 'Publish or share', instructions: 'Export and post/share recording with target audience.', expected_state: 'Demo shared.', visual_checks: [], common_mistakes: ['Never shipping the demo'], troubleshooting: ['Publish as unlisted if not public-ready.'], completion_criteria: 'Demo delivered.' }
+    ],
+    completion_criteria: 'A product demo is recorded and shared.',
+    report_template: { summary: 'Product demo workflow completed.', issues_found: [], fixes_made: [], recommendations: [] }
   }
 ];
 

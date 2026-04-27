@@ -22,7 +22,8 @@ export default function LoginPage() {
     if (dailyKeys.length) {
       try {
         const parsed = JSON.parse(localStorage.getItem(dailyKeys[0]) || '{}');
-        if (parsed?.focus?.status === 'active') return '/daily';
+        if (parsed?.active_focus_block?.status === 'active') return '/daily';
+        if (Array.isArray(parsed?.outcomes) && parsed.outcomes.length) return '/daily';
       } catch {
         // ignore
       }

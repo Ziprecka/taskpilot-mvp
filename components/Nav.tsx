@@ -39,6 +39,8 @@ export function Nav() {
         <button className="btn-ghost btn-sm hidden md:inline-flex" onClick={() => window.dispatchEvent(new Event('taskpilot-open-command'))}>Command</button>
         <Link href="/pricing" className={linkCls('/pricing')}>Pricing</Link>
         <Link href="/demo" className={`${linkCls('/demo')} hidden sm:inline-flex`}>Demo</Link>
+        <Link href="/reports" className={`${linkCls('/reports')} hidden sm:inline-flex`}>Reports</Link>
+        <Link href="/proof" className={`${linkCls('/proof')} hidden md:inline-flex`}>Proof</Link>
         {user ? (
           <>
             <Link href="/dashboard" className={linkCls('/dashboard')}>Dashboard</Link>

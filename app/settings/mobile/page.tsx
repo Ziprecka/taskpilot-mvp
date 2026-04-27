@@ -8,8 +8,12 @@ export default function MobileSetupPage() {
   const [manifestDetected, setManifestDetected] = useState(false);
 
   useEffect(() => {
-    void fetch('/manifest.webmanifest')
-      .then((res) => setManifestDetected(res.ok))
+    void fetch('/manifest.webmanifest', { cache: 'no-store' })
+      .then((res) => setManifestDetected(res.ok && res.headers.get('content-type')?.includes('json') !== false))
+      .catch(async () => {
+        const fallback = await fetch('/manifest.json', { cache: 'no-store' }).catch(() => null);
+        setManifestDetected(Boolean(fallback?.ok));
+      })
       .catch(() => setManifestDetected(false));
   }, []);
 
@@ -18,12 +22,13 @@ export default function MobileSetupPage() {
       <Nav />
       <section className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
         <h1 className="mb-2 text-3xl font-black">TaskPilot Mobile Setup</h1>
-        <p className="mb-5 text-slate-400">Install TaskPilot on your phone home screen as a PWA-style app.</p>
+        <p className="mb-5 text-slate-400">Best used as your daily command center: plan, focus, prove, and close the day from your phone.</p>
 
         <div className="card mb-5 p-5">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">PWA status</h2>
           <p className="text-sm text-slate-300">Manifest detected: {manifestDetected ? 'yes' : 'no'}</p>
           <p className="text-sm text-slate-300">Install type: PWA-style home screen shortcut (not App Store app).</p>
+          <a className="btn-secondary btn-sm mt-3 inline-flex" href="/">Install app</a>
         </div>
 
         <div className="card mb-5 p-5">

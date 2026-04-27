@@ -296,6 +296,27 @@ create table if not exists public.usage_events (
 create index if not exists idx_usage_events_user on public.usage_events(user_id);
 create index if not exists idx_usage_events_type on public.usage_events(event_type);
 
+create table if not exists public.pro_interest (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  email text,
+  feature text,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.product_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  event_type text not null,
+  route text,
+  metadata jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_pro_interest_created on public.pro_interest(created_at desc);
+create index if not exists idx_product_events_type on public.product_events(event_type);
+create index if not exists idx_product_events_route on public.product_events(route);
+
 alter table public.profiles enable row level security;
 drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own" on public.profiles for select using (auth.uid() = id);
