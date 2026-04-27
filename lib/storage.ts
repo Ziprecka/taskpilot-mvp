@@ -43,6 +43,14 @@ export function getProInterestStorageKey() {
   return `taskpilot-pro-interest-${getStorageUserKey()}`;
 }
 
+export function getUserProgressionStorageKey() {
+  return `taskpilot-user-progression-${getStorageUserKey()}`;
+}
+
+export function getWorkflowLibraryMetaStorageKey() {
+  return `taskpilot-workflow-library-meta-${getStorageUserKey()}`;
+}
+
 export function clampUploads<T>(uploads: T[]): T[] {
   return uploads.slice(0, MAX_UPLOADS);
 }

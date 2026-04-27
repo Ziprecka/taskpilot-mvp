@@ -65,6 +65,9 @@ export interface Workflow {
   success_definition?: string;
   failure_conditions?: string[];
   verification_plan?: string[];
+  source_type?: 'starter' | 'generated' | 'user-created' | 'imported' | 'internal/example';
+  library_state?: 'active' | 'archived' | 'deleted/local-hidden';
+  last_started_at?: string | null;
 }
 
 export interface WorkflowSession {
@@ -226,6 +229,12 @@ export interface DailyReport {
 
 export interface DailyAIResponse {
   direct_answer: string;
+  next_move?: string;
+  go_here?: string;
+  write_make_do?: string;
+  confidence?: 'low' | 'medium' | 'high';
+  suggested_action?: 'start_focus' | 'log_proof' | 'mark_done' | 'create_workflow' | 'close_day' | 'ask_clarifying_question' | 'none';
+  clarifying_question?: string;
   headline?: string;
   do_now?: string;
   steps?: string[];
@@ -268,16 +277,23 @@ export type DailyCommandState = {
   events: DailyEvent[];
   coach_messages: DailyCoachMessage[];
   report: DailyReport | null;
-  total_xp?: number;
   xp_today?: number;
-  level?: number;
-  streak?: number;
-  best_streak?: number;
   proof_count_today?: number;
   proof_items?: DailyProofItem[];
   lessons?: LearningCard[];
   last_saved_at: string;
 };
+
+export interface UserProgression {
+  total_xp: number;
+  level: number;
+  current_streak: number;
+  best_streak: number;
+  completed_outcomes_total: number;
+  proof_logged_total: number;
+  reports_generated_total: number;
+  last_active_date: string | null;
+}
 
 export interface DailyProofItem {
   id: string;

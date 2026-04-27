@@ -2,6 +2,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAIClient } from '@/lib/openai';
 import type { DailyAIResponse } from '@/types/workflow';
 
+function limitWords(input: string, maxWords: number) {
+  return input.split(/\s+/).filter(Boolean).slice(0, maxWords).join(' ').trim();
+}
+
+function toNextMoveShape(input: DailyAIResponse): DailyAIResponse {
+  return {
+    ...input,
+    next_move: limitWords(input.next_move || input.do_now || input.next_action || 'Start one concrete action now.', 10),
+    go_here: limitWords(input.go_here || 'Open Daily outcome card now.', 12),
+    write_make_do: limitWords(input.write_make_do || input.do_now || input.next_action || '', 20),
+    proof_needed: limitWords(input.proof_needed || 'Upload screenshot or note as proof.', 14),
+    avoid: limitWords(input.avoid || input.drift_warning || 'Avoid context switching before proof.', 14),
+    suggested_action: input.suggested_action || 'start_focus',
+    clarifying_question: input.clarifying_question || '',
+    confidence: input.confidence || 'medium'
+  };
+}
+
 function sanitizeOutcome(input: string) {
   const text = input.trim();
   const lower = text.toLowerCase();
@@ -26,7 +44,7 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
   const reportDone = Boolean(body?.report);
   if (lower.includes('what should i do next') || lower.includes('next move')) {
     if (!outcomes.length) {
-      return {
+      return toNextMoveShape({
       headline: 'Plan your top 3 now',
       do_now: 'Choose day type and generate your plan.',
       steps: ['Pick day type', 'Generate 3 outcomes', 'Start first focus block'],
@@ -40,11 +58,14 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
         suggested_focus_minutes: 10,
         focus_minutes: 10,
         drift_warning: '',
-        priority_reason: 'Planning first prevents random execution.'
-      };
+        priority_reason: 'Planning first prevents random execution.',
+        suggested_action: 'none',
+        go_here: 'Open Plan Today modal',
+        write_make_do: 'Choose day type and accept three outcomes.'
+      });
     }
     if (focus?.status === 'active') {
-      return {
+      return toNextMoveShape({
         headline: 'Finish current mission first',
         do_now: 'Complete current action and log proof.',
         steps: ['Do one action', 'Log proof', 'Decide done or continue'],
@@ -58,11 +79,14 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
         suggested_focus_minutes: 15,
         focus_minutes: 15,
         drift_warning: '',
-        priority_reason: 'Closing active work beats context switching.'
-      };
+        priority_reason: 'Closing active work beats context switching.',
+        suggested_action: 'log_proof',
+        go_here: 'Current Mission card',
+        write_make_do: 'Finish one action and log evidence.'
+      });
     }
     if (reportDone) {
-      return {
+      return toNextMoveShape({
         headline: 'Close and carry forward',
         do_now: 'Carry forward unfinished outcomes.',
         steps: ['Review unfinished', 'Carry forward', 'Set tomorrow first move'],
@@ -76,8 +100,11 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
         suggested_focus_minutes: 10,
         focus_minutes: 10,
         drift_warning: '',
-        priority_reason: 'A clear next-day start protects momentum.'
-      };
+        priority_reason: 'A clear next-day start protects momentum.',
+        suggested_action: 'close_day',
+        go_here: 'Daily Debrief panel',
+        write_make_do: 'Carry unfinished outcomes and set tomorrow first move.'
+      });
     }
   }
   if (body?.generateTop3) {
@@ -97,7 +124,7 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
       : custom.includes('build') || custom.includes('app')
         ? ensureScopedOutcomes(['Ship one scoped feature', 'Fix one visible UX issue', 'Record a demo proving the improvement'])
         : generated;
-    return {
+    return toNextMoveShape({
       headline: 'Top 3 ready',
       do_now: 'Pick #1 and start a 25-minute block.',
       steps: ['Pick highest leverage', 'Start focus', 'Log proof after first action'],
@@ -112,11 +139,14 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
       focus_minutes: 25,
       drift_warning: '',
       priority_reason: 'Structured priorities reduce drift and improve completion odds.',
-      generated_outcomes: customGenerated
-    };
+      generated_outcomes: customGenerated,
+      suggested_action: 'start_focus',
+      go_here: 'Top outcome card',
+      write_make_do: 'Start first action now, then log proof.'
+    });
   }
   if (lower.includes('5 minute') || lower.includes('reduce')) {
-    return {
+    return toNextMoveShape({
       headline: 'Make it tiny now',
       do_now: focus?.title ? `Do first tiny action for "${focus.title}".` : 'Do one tiny action now.',
       steps: ['Open task', 'Do 1 action', 'Log quick proof'],
@@ -130,11 +160,14 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
       suggested_focus_minutes: 5,
       focus_minutes: 5,
       drift_warning: '',
-      priority_reason: 'Small concrete action breaks inertia and restores execution momentum.'
-    };
+      priority_reason: 'Small concrete action breaks inertia and restores execution momentum.',
+      suggested_action: 'start_focus',
+      go_here: 'Current Mission card',
+      write_make_do: 'Do one tiny action and capture proof.'
+    });
   }
   if (!outcomes.length) {
-    return {
+    return toNextMoveShape({
       headline: 'Plan before execution',
       do_now: 'Generate a 3-outcome plan now.',
       steps: ['Choose day type', 'Add context', 'Accept plan'],
@@ -148,10 +181,13 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
       suggested_focus_minutes: 10,
       focus_minutes: 10,
       drift_warning: '',
-      priority_reason: 'Without outcomes, focus decisions become random.'
-    };
+      priority_reason: 'Without outcomes, focus decisions become random.',
+      suggested_action: 'none',
+      go_here: 'Plan Today modal',
+      write_make_do: 'Generate three outcomes before starting work.'
+    });
   }
-  return {
+  return toNextMoveShape({
     headline: focus?.title ? 'Stay in current mission' : 'Start highest leverage outcome',
     do_now: focus?.title ? `Do next action for "${focus.title}".` : 'Start a 25-minute focus block now.',
     steps: focus?.title ? ['Complete one action', 'Log proof', 'Mark done or continue'] : ['Pick outcome', 'Start focus', 'Log proof'],
@@ -175,8 +211,11 @@ function mockDailyResponse(message: string, body: any): DailyAIResponse & { gene
     drift_warning: lower.includes('stuck') ? 'You are drifting into ambiguity. Choose one executable action now.' : (focus ? 'Avoid context switching before closing this action.' : ''),
     priority_reason: 'Execution on one high-value outcome compounds faster than parallel partial progress.',
     current_state_read: focus ? `Focus active on ${focus.title}` : `Outcomes ready: ${outcomes.length}`,
-    recommended_outcome_id: outcomes[0]?.id ?? null
-  };
+    recommended_outcome_id: outcomes[0]?.id ?? null,
+    suggested_action: focus?.status === 'active' ? 'log_proof' : 'start_focus',
+    go_here: focus?.status === 'active' ? 'Current Mission card' : 'Top outcome card',
+    write_make_do: focus?.status === 'active' ? 'Finish action and upload proof.' : 'Open outcome and start first concrete step.'
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -215,10 +254,24 @@ Rules:
 - For "What next?": return do_now + up to 3 steps + proof_needed.
 - For "Make it tiny": return one action that takes 2-5 minutes.
 - Prefer concrete verbs: open, write, send, upload, record, screenshot, commit, test, publish.
+- Enforce strict brevity:
+  - next_move max 10 words
+  - go_here max 12 words
+  - write_make_do max 20 words
+  - proof_needed max 14 words
+  - avoid max 14 words
+- Never output paragraph answers unless explicitly asked for detailed explanation.
+- Anti-echo rule: never repeat objective as action; translate into concrete user action.
 
 Return strict JSON:
 {
  "direct_answer": string,
+ "next_move": string,
+ "go_here": string,
+ "write_make_do": string,
+ "confidence": "low" | "medium" | "high",
+ "suggested_action": "start_focus" | "log_proof" | "mark_done" | "create_workflow" | "close_day" | "ask_clarifying_question" | "none",
+ "clarifying_question": string,
  "current_state_read": string,
  "recommended_outcome_id": string|null,
  "next_action": string,
@@ -241,7 +294,7 @@ Return strict JSON:
       response_format: { type: 'json_object' }
     });
     const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
-    const merged = { ...mockDailyResponse(message, body), ...parsed };
+    const merged = toNextMoveShape({ ...mockDailyResponse(message, body), ...parsed });
     if (Array.isArray(merged.generated_outcomes)) merged.generated_outcomes = ensureScopedOutcomes(merged.generated_outcomes);
     return NextResponse.json({ ok: true, data: merged, source: 'openai' });
   } catch {

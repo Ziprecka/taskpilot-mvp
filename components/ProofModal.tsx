@@ -17,6 +17,7 @@ export function ProofModal(props: {
   const [note, setNote] = useState('');
   const [fileMeta, setFileMeta] = useState<{ name?: string; type?: string; size?: number; dataUrl?: string }>({});
   const [error, setError] = useState('');
+  const isMobile = typeof navigator !== 'undefined' && /android|iphone|ipad|ipod/i.test(navigator.userAgent);
 
   const preview = useMemo(() => fileMeta.dataUrl, [fileMeta.dataUrl]);
   if (!open) return null;
@@ -30,6 +31,13 @@ export function ProofModal(props: {
       setError('');
     };
     reader.readAsDataURL(file);
+  }
+
+  function onPasteImage(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const item = Array.from(e.clipboardData.items).find((entry) => entry.type.startsWith('image/'));
+    if (!item) return;
+    const file = item.getAsFile();
+    if (file) handleFile(file);
   }
 
   function save() {
@@ -58,6 +66,9 @@ export function ProofModal(props: {
       <div className="card w-full max-w-2xl p-5" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl font-black">Log proof</h2>
         <p className="text-sm text-slate-400">Add visible evidence that this outcome moved forward.</p>
+        <p className="mt-1 text-xs text-slate-500">
+          {isMobile ? 'Tip: use camera/photo proof first for fastest capture.' : 'Tip: screenshot first, then add note/link if needed.'}
+        </p>
         <p className="mt-1 text-xs text-slate-500">Outcome: {outcomeTitle}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {(['screenshot', 'photo', 'link', 'text', 'file'] as ProofType[]).map((type) => (
@@ -69,7 +80,7 @@ export function ProofModal(props: {
           <input className="mt-2 block w-full" type="file" accept="image/png,image/jpeg,image/webp,image/*" capture="environment" onChange={(e) => handleFile(e.target.files?.[0])} />
         </label>
         {preview && <img src={preview} alt="proof preview" className="mt-3 max-h-44 rounded-lg border border-slate-700 object-contain" />}
-        <textarea className="input mt-3 min-h-24" placeholder="What did you complete? Paste a link, describe the proof, or add context." value={note} onChange={(e) => setNote(e.target.value)} />
+        <textarea className="input mt-3 min-h-24" placeholder="What did you complete? Paste a link, describe the proof, or add context. You can also paste an image." value={note} onChange={(e) => setNote(e.target.value)} onPaste={onPasteImage} />
         {error && <p className="mt-2 text-sm text-amber-200">{error}</p>}
         <div className="mt-3 flex gap-2">
           <button className="btn-primary" onClick={save}>Save proof</button>

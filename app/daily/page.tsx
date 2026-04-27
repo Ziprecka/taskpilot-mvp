@@ -12,9 +12,9 @@ import { Nav } from '@/components/Nav';
 import { useToast } from '@/components/ToastProvider';
 import { addRecentActivity } from '@/lib/activity';
 import { trackProductEvent } from '@/lib/productEvents';
-import { getDailyStorageKey, getReportsStorageKey } from '@/lib/storage';
+import { getDailyStorageKey, getReportsStorageKey, getUserProgressionStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
-import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, Workflow } from '@/types/workflow';
+import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
 
 type DayType = NonNullable<DailyCommandState['selected_day_type']>;
 type DailyTab = 'outcomes' | 'focus' | 'coach' | 'timeline' | 'report';
@@ -84,11 +84,7 @@ function buildInitialState(date: string): DailyCommandState {
     events: [],
     coach_messages: [],
     report: null,
-    total_xp: 0,
     xp_today: 0,
-    level: 1,
-    streak: 0,
-    best_streak: 0,
     proof_count_today: 0,
     lessons: [],
     last_saved_at: nowIso()
@@ -127,7 +123,29 @@ export default function DailyPage() {
   const [rewardData, setRewardData] = useState({ title: '', xp: 0, copy: '', next: '' });
   const [showCompleteWithoutProof, setShowCompleteWithoutProof] = useState<string | null>(null);
   const [showFocusCompleteModal, setShowFocusCompleteModal] = useState(false);
-  const [copilotMode, setCopilotMode] = useState<'coach' | 'action'>('coach');
+  const [copilotMode, setCopilotMode] = useState<'coach' | 'action'>('action');
+  const [showCoachHistory, setShowCoachHistory] = useState(false);
+  const [progression, setProgression] = useState<UserProgression>({
+    total_xp: 0,
+    level: 1,
+    current_streak: 0,
+    best_streak: 0,
+    completed_outcomes_total: 0,
+    proof_logged_total: 0,
+    reports_generated_total: 0,
+    last_active_date: null
+  });
+  const [workflowDraftSourceId, setWorkflowDraftSourceId] = useState<string | null>(null);
+  const [workflowDraft, setWorkflowDraft] = useState({
+    workflow_name: '',
+    goal: '',
+    desired_result: '',
+    context: '',
+    proof_required: '',
+    step_count: 7 as 5 | 7 | 10,
+    style: 'guided mode' as 'fast checklist' | 'guided mode' | 'proof mode' | 'SOP mode',
+    generated: null as Workflow | null
+  });
   const [lessonSourceId, setLessonSourceId] = useState<string | null>(null);
   const [lessonDraft, setLessonDraft] = useState<LearningCardType>({
     id: '',
@@ -157,11 +175,7 @@ export default function DailyPage() {
         setState({
           ...buildInitialState(today),
           ...parsed,
-          total_xp: parsed?.total_xp ?? 0,
           xp_today: parsed?.xp_today ?? 0,
-          level: parsed?.level ?? 1,
-          streak: parsed?.streak ?? 0,
-          best_streak: parsed?.best_streak ?? 0,
           proof_count_today: parsed?.proof_count_today ?? 0,
           proof_items: Array.isArray(parsed?.proof_items) ? parsed.proof_items : [],
           lessons: Array.isArray(parsed?.lessons) ? parsed.lessons : []
@@ -172,6 +186,8 @@ export default function DailyPage() {
         }
         if (parsed?.custom_context) setCustomDirection(parsed.custom_context);
       }
+      const progressionRaw = localStorage.getItem(getUserProgressionStorageKey());
+      if (progressionRaw) setProgression({ ...progression, ...JSON.parse(progressionRaw) });
     } catch {
       setState(buildInitialState(today));
     }
@@ -192,6 +208,10 @@ export default function DailyPage() {
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify({ ...state, last_saved_at: nowIso() }));
   }, [storageKey, state]);
+
+  useEffect(() => {
+    localStorage.setItem(getUserProgressionStorageKey(), JSON.stringify(progression));
+  }, [progression]);
 
   useEffect(() => {
     if (!state.active_focus_block || state.active_focus_block.status !== 'active') return;
@@ -279,16 +299,30 @@ export default function DailyPage() {
     updateState((prev) => ({ ...prev, events: [{ id: crypto.randomUUID(), type, content, created_at: nowIso() }, ...prev.events].slice(0, 200) }));
   }
 
-  function awardXP(amount: number, reason: string) {
-    updateState((prev) => {
-      const total = (prev.total_xp || 0) + amount;
-      const level = Math.floor(total / 100) + 1;
-      return { ...prev, total_xp: total, xp_today: (prev.xp_today || 0) + amount, level };
+  function awardXP(amount: number, reason: string, rewardType: 'small' | 'big' = 'small') {
+    let didLevelUp = false;
+    setProgression((prev) => {
+      const total = prev.total_xp + amount;
+      const nextLevel = Math.floor(total / 100) + 1;
+      didLevelUp = nextLevel > prev.level;
+      return { ...prev, total_xp: total, level: nextLevel };
     });
+    updateState((prev) => ({ ...prev, xp_today: (prev.xp_today || 0) + amount }));
     pushToast(`+${amount} XP ${reason}`);
-    setRewardData({ title: reason, xp: amount, copy: 'Progress locked in with proof-backed execution.', next: 'Take the next smallest action now.' });
-    setShowReward(true);
-    logEvent('completed_action', `Reward earned: +${amount} XP (${reason})`);
+    if (rewardType === 'big') {
+      setRewardData({ title: reason, xp: amount, copy: 'Progress locked in with proof-backed execution.', next: 'Take the next smallest action now.' });
+      setShowReward(true);
+    }
+    if (didLevelUp) {
+      setRewardData({
+        title: 'Level up',
+        xp: 0,
+        copy: `You reached level ${Math.floor((progression.total_xp + amount) / 100) + 1}.`,
+        next: 'Push one more concrete action.'
+      });
+      setShowReward(true);
+    }
+    logEvent('completed_action', `XP earned: +${amount} (${reason})`);
   }
 
   function makeOutcome(title: string, idx: number): DailyOutcome {
@@ -332,7 +366,7 @@ export default function DailyPage() {
     logEvent('created_outcome', `Outcome created: ${seed}`);
     addRecentActivity({ type: 'daily_outcome_created', title: seed, route: '/daily' });
     void trackProductEvent('daily_plan_created', '/daily', { title: seed, dayType });
-    awardXP(10, 'Plan created');
+    awardXP(10, 'Plan created', 'small');
     pushToast('Outcome added.');
   }
 
@@ -406,7 +440,7 @@ export default function DailyPage() {
     }));
     logEvent('generated_top3', `Created 3-outcome ${selectedDayType || dayType} day plan.`);
     void trackProductEvent('daily_plan_created', '/daily', { dayType, count: chosen.length });
-    awardXP(10, 'Plan created');
+    awardXP(10, 'Plan created', 'small');
     pushToast('Daily plan accepted.');
     setShowPlanReview(false);
     setShowPlanModal(false);
@@ -448,7 +482,7 @@ export default function DailyPage() {
     logEvent('started_focus', `Focus started: ${outcome.title}`);
     addRecentActivity({ type: 'focus_started', title: `Focus started for ${outcome.title}`, route: '/daily' });
     void trackProductEvent('focus_started', '/daily', { outcome_id: outcome.id, title: outcome.title });
-    awardXP(15, 'Focus started');
+    awardXP(5, 'Focus started', 'small');
     pushToast('Focus block started.');
   }
 
@@ -488,7 +522,8 @@ export default function DailyPage() {
     }));
     logEvent('completed_outcome', `Outcome completed: ${target.title}`);
     addRecentActivity({ type: 'daily_outcome_completed', title: target.title, route: '/daily' });
-    awardXP(20, 'Outcome complete');
+    setProgression((prev) => ({ ...prev, completed_outcomes_total: prev.completed_outcomes_total + 1 }));
+    awardXP(25, 'Outcome complete', 'big');
     if (state.outcomes.filter((o) => o.status === 'done').length + 1 >= state.outcomes.length && state.outcomes.length > 0) {
       setRewardData({ title: 'Today\'s outcomes complete.', xp: 30, copy: 'You finished all planned outcomes.', next: 'Close the day with a debrief.' });
       setShowReward(true);
@@ -522,7 +557,8 @@ export default function DailyPage() {
     logEvent('proof_added', 'Proof logged.');
     void trackProductEvent('proof_logged', '/daily', { outcome_id: id });
     updateState((prev) => ({ ...prev, proof_count_today: (prev.proof_count_today || 0) + 1 }));
-    awardXP(15, 'Evidence logged');
+    setProgression((prev) => ({ ...prev, proof_logged_total: prev.proof_logged_total + 1 }));
+    awardXP(15, 'Evidence logged', 'big');
     pushToast('Proof logged.');
   }
 
@@ -542,7 +578,8 @@ export default function DailyPage() {
     logEvent('proof_added', 'Proof logged');
     void trackProductEvent('proof_logged', '/daily', { outcome_id: item.outcome_id, type: item.type });
     updateState((prev) => ({ ...prev, proof_count_today: (prev.proof_count_today || 0) + 1 }));
-    awardXP(15, 'Proof logged');
+    setProgression((prev) => ({ ...prev, proof_logged_total: prev.proof_logged_total + 1 }));
+    awardXP(15, 'Proof logged', 'big');
     setProofTargetOutcomeId(null);
   }
 
@@ -563,6 +600,22 @@ export default function DailyPage() {
     pushToast('Outcome refined.');
   }
 
+  function openWorkflowDraft(id: string) {
+    const outcome = state.outcomes.find((o) => o.id === id);
+    if (!outcome) return;
+    setWorkflowDraftSourceId(id);
+    setWorkflowDraft({
+      workflow_name: `${outcome.title} Workflow`,
+      goal: outcome.title,
+      desired_result: outcome.why_it_matters || 'Concrete daily outcome with proof.',
+      context: outcome.first_action || '',
+      proof_required: outcome.proof_required || '',
+      step_count: 7,
+      style: 'guided mode',
+      generated: null
+    });
+  }
+
   async function convertOutcomeToWorkflow(id: string) {
     const outcome = state.outcomes.find((o) => o.id === id);
     if (!outcome) return;
@@ -570,11 +623,14 @@ export default function DailyPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        goal: outcome.title,
+        goal: workflowDraft.goal || outcome.title,
         category: outcome.category === 'money' ? 'business_sop' : outcome.category === 'build' ? 'coding' : 'productivity',
-        desired_outcome: outcome.why_it_matters,
-        steps_count: 7,
-        output_style: 'practical checklist'
+        desired_outcome: workflowDraft.desired_result || outcome.why_it_matters,
+        context: workflowDraft.context,
+        proof_required: workflowDraft.proof_required,
+        steps_count: workflowDraft.step_count,
+        output_style: workflowDraft.style,
+        prompt: 'Turn this daily outcome into a concrete workflow with steps that can be executed and verified.'
       })
     });
     const payload = await res.json();
@@ -593,12 +649,20 @@ export default function DailyPage() {
       completion_criteria: raw.completion_criteria || outcome.title,
       report_template: raw.report_template || { summary: 'Generated from daily outcome.', issues_found: [], fixes_made: [], recommendations: [] }
     };
-    saveGeneratedWorkflow(wf);
-    addRecentActivity({ type: 'workflow_generated', title: `Converted outcome to workflow: ${wf.workflow_name}`, route: `/session/${wf.id}` });
+    setWorkflowDraft((prev) => ({ ...prev, generated: wf }));
+  }
+
+  function finalizeWorkflowFromDraft(action: 'start' | 'save' | 'edit') {
+    const generated = workflowDraft.generated;
+    if (!generated) return;
+    saveGeneratedWorkflow(generated);
+    addRecentActivity({ type: 'workflow_generated', title: `Converted outcome to workflow: ${generated.workflow_name}`, route: `/session/${generated.id}` });
     logEvent('completed_action', 'Converted active outcome to workflow.');
-    awardXP(15, 'Workflow created');
+    awardXP(15, 'Workflow created', 'small');
     pushToast('Workflow created from outcome.');
-    router.push(`/session/${wf.id}`);
+    setWorkflowDraftSourceId(null);
+    if (action === 'start') router.push(`/session/${generated.id}`);
+    if (action === 'edit') router.push('/workflows/generate');
   }
 
   function openLessonModal(sourceId: string) {
@@ -621,7 +685,7 @@ export default function DailyPage() {
     if (!lessonSourceId) return;
     updateState((prev) => ({ ...prev, lessons: [lessonDraft, ...(prev.lessons || [])].slice(0, 50) }));
     setLessonSourceId(null);
-    awardXP(10, 'Lesson captured');
+    awardXP(10, 'Lesson captured', 'small');
     pushToast('Lesson saved.');
   }
 
@@ -645,7 +709,7 @@ export default function DailyPage() {
         focus: state.active_focus_block,
         events: state.events,
         report: state.report,
-        xp_state: { total_xp: state.total_xp || 0, xp_today: state.xp_today || 0, streak: state.streak || 0, level: state.level || 1 },
+        xp_state: { total_xp: progression.total_xp, xp_today: state.xp_today || 0, streak: progression.current_streak, level: progression.level },
         copilot_mode: copilotMode,
         fullState: state
       })
@@ -662,12 +726,13 @@ export default function DailyPage() {
     updateState((prev) => ({ ...prev, coach_messages: [...prev.coach_messages, assistant].slice(-80) }));
   }
 
-  function runCoachAction(action: 'start_focus' | 'log_proof' | 'mark_done' | 'create_workflow' | 'close_day' | 'none') {
+  function runCoachAction(action: 'start_focus' | 'log_proof' | 'mark_done' | 'create_workflow' | 'close_day' | 'none' | 'ask_clarifying_question') {
     if (action === 'start_focus') return pickBestOutcome();
     if (action === 'log_proof') return openProofModal(state.active_outcome_id);
     if (action === 'mark_done' && state.active_outcome_id) return completeOutcome(state.active_outcome_id);
-    if (action === 'create_workflow' && state.active_outcome_id) return void convertOutcomeToWorkflow(state.active_outcome_id);
+    if (action === 'create_workflow' && state.active_outcome_id) return openWorkflowDraft(state.active_outcome_id);
     if (action === 'close_day') return generateReport();
+    if (action === 'ask_clarifying_question') return void sendCoachMessage('Ask one clarifying question before recommending next move.');
   }
 
   function generateReport() {
@@ -704,13 +769,14 @@ export default function DailyPage() {
     addRecentActivity({ type: 'daily_report_generated', title: 'Daily report generated', route: '/daily' });
     const completedCount = completed.length;
     if (completedCount > 0) {
-      updateState((prev) => {
-        const streak = (prev.streak || 0) + 1;
-        return { ...prev, streak, best_streak: Math.max(prev.best_streak || 0, streak) };
+      setProgression((prev) => {
+        const streak = prev.current_streak + 1;
+        return { ...prev, current_streak: streak, best_streak: Math.max(prev.best_streak, streak) };
       });
       pushToast('Streak protected');
     }
-    awardXP(25, 'Daily debrief complete');
+    setProgression((prev) => ({ ...prev, reports_generated_total: prev.reports_generated_total + 1 }));
+    awardXP(30, 'Daily debrief generated', 'big');
     pushToast('Day closed with report.');
   }
 
@@ -730,7 +796,7 @@ export default function DailyPage() {
     const existing = existingRaw ? JSON.parse(existingRaw) : buildInitialState(nextDay.toISOString().slice(0, 10));
     localStorage.setItem(nextKey, JSON.stringify({ ...existing, outcomes: carry }));
     logEvent('carry_over', `Carried ${carry.length} outcomes to tomorrow.`);
-    awardXP(10, 'Carry forward');
+    awardXP(10, 'Carry forward', 'small');
     pushToast('Unfinished outcomes carried to tomorrow.');
   }
 
@@ -763,7 +829,7 @@ export default function DailyPage() {
   const challenges = [
     { id: 'focus', title: 'Complete one 25-minute focus block', reward: 15, done: focusMinutesToday >= 25, action: () => pickBestOutcome() },
     { id: 'proof', title: 'Log proof before noon', reward: 15, done: (state.proof_count_today || 0) > 0, action: () => state.active_outcome_id ? logProof(state.active_outcome_id, 'Challenge proof note') : pushToast('No active outcome') },
-    { id: 'workflow', title: 'Turn one outcome into a workflow', reward: 20, done: state.events.some((e) => e.content.includes('Converted active outcome')), action: () => state.active_outcome_id ? void convertOutcomeToWorkflow(state.active_outcome_id) : pushToast('Pick an outcome first') },
+    { id: 'workflow', title: 'Turn one outcome into a workflow', reward: 20, done: state.events.some((e) => e.content.includes('Converted active outcome')), action: () => state.active_outcome_id ? openWorkflowDraft(state.active_outcome_id) : pushToast('Pick an outcome first') },
     { id: 'debrief', title: 'Close the day with a debrief', reward: 25, done: Boolean(state.report), action: () => generateReport() }
   ];
 
@@ -784,7 +850,8 @@ export default function DailyPage() {
             <p className="badge mb-2">Today&apos;s execution cockpit</p>
             <h1 className="text-3xl font-black">Daily Command Center</h1>
             <p className="mt-1 text-sm text-slate-400">{state.date} · Status: {state.status}</p>
-            <p className="mt-1 text-xs text-slate-500">Execution streak: {state.streak ?? dailyStreak} · Completed today: {completedToday} · Focus minutes: {focusMinutesToday}</p>
+            <p className="mt-1 text-xs text-slate-500">Streak: {progression.current_streak || dailyStreak} days · Completed today: {completedToday} · Focus minutes: {focusMinutesToday}</p>
+            <p className="mt-1 text-xs text-slate-500" title="Lifetime XP is never reset when you reset the day.">Today XP: +{state.xp_today || 0} · Total XP: {progression.total_xp} · Level: {progression.level} Operator</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="badge">AI: {aiMode === 'openai' ? 'OpenAI' : 'Mock'}</span>
@@ -808,9 +875,9 @@ export default function DailyPage() {
             outcomesCompleted={completedToday}
             outcomesTotal={Math.max(1, state.outcomes.length)}
             proofLogged={state.proof_count_today || 0}
-            streak={state.streak ?? dailyStreak}
+            streak={progression.current_streak || dailyStreak}
             xpToday={state.xp_today || 0}
-            level={state.level || 1}
+            level={progression.level || 1}
           />
         </div>
 
@@ -866,7 +933,7 @@ export default function DailyPage() {
                           <button className="btn-ghost btn-sm" onClick={safeAction('Log proof', () => openProofModal(outcome.id))}>Log proof</button>
                           {outcome.status === 'done' && <button className="btn-ghost btn-sm" onClick={safeAction('Turn this into a lesson', () => openLessonModal(outcome.id))}>Turn this into a lesson</button>}
                           <button className="btn-ghost btn-sm" onClick={safeAction('Edit', () => openEditOutcome(outcome.id))}>Edit</button>
-                          <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => void convertOutcomeToWorkflow(outcome.id))}>Turn into workflow</button>
+                          <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => openWorkflowDraft(outcome.id))}>Turn into workflow</button>
                         </div>
                         {outcome.completed_at && <p className="mt-1 text-xs text-emerald-300">Completed {new Date(outcome.completed_at).toLocaleTimeString()}</p>}
                       </div>
@@ -904,7 +971,7 @@ export default function DailyPage() {
                     <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(activeFocus.outcome_id))}>Blocked</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('End focus', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'complete', ended_at: nowIso() } : null, status: 'planning', active_outcome_id: null })); logEvent('completed_action', 'Focus ended.'); })}>End focus</button>
-                    <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => void convertOutcomeToWorkflow(activeFocus.outcome_id))}>Turn into workflow</button>
+                    <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => openWorkflowDraft(activeFocus.outcome_id))}>Turn into workflow</button>
                   </div>
                 </div>
               )}
@@ -918,27 +985,39 @@ export default function DailyPage() {
                 <button className={`btn-secondary btn-sm ${copilotMode === 'coach' ? 'border-amber-400 text-amber-100' : ''}`} onClick={() => setCopilotMode('coach')}>Coach</button>
                 <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-100' : ''}`} onClick={() => setCopilotMode('action')}>Action</button>
               </div>
-              <DailyCoachCard ai={coachRecommendation} onAction={runCoachAction} />
-              <div className="mb-3 flex flex-wrap gap-2">
-                <button className="btn-secondary btn-sm" onClick={safeAction('Pick best next move', () => void sendCoachMessage('Based on daily state, pick best next move and why.'))}>Pick best next move</button>
-                <button className="btn-ghost btn-sm" onClick={safeAction('Make it tiny', () => void sendCoachMessage('Make the active outcome tiny: one 5-minute action.'))}>Make it tiny</button>
-                <button className="btn-ghost btn-sm" onClick={safeAction('Find money move', () => void sendCoachMessage('Find the best money move from current outcomes and give one immediate action.'))}>Find money move</button>
-                <button className="btn-secondary btn-sm" onClick={safeAction('Close the day', generateReport)}>Close the day</button>
+              <div className="mb-3">
+                <DailyCoachCard ai={coachRecommendation} onAction={runCoachAction} />
               </div>
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/50 p-3">
-                {state.coach_messages.map((m) => (
-                  <div key={m.id} className={`rounded-xl p-2 text-sm ${m.role === 'assistant' ? 'bg-slate-800/80 text-slate-100' : 'bg-amber-400/10 text-amber-100'}`}>
-                    <p className="text-xs uppercase tracking-widest text-slate-500">{m.role}</p>
-                    <p className="line-clamp-3">{m.content}</p>
-                    {m.ai && (
-                      <DailyCoachCard ai={m.ai} onAction={runCoachAction} />
-                    )}
-                  </div>
-                ))}
-                {!state.coach_messages.length && <p className="text-sm text-slate-500">No coach messages yet. Ask what to do first.</p>}
+              <div className="mb-3 grid gap-2">
+                <button className={`btn-primary btn-sm ${state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'border-emerald-400' : ''}`} onClick={safeAction('Do next move', () => void sendCoachMessage(activeFocus?.status === 'active' ? 'Give next move for current focus. Keep it short.' : 'Give next move and where to go. Keep it short.'))}>
+                  {state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'Close day' : 'Do next move'}
+                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button className="btn-secondary btn-sm" onClick={safeAction('Make it tiny', () => void sendCoachMessage('Make it tiny. One 2-5 minute action only.'))}>Make it tiny</button>
+                  <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(state.active_outcome_id))}>Log proof</button>
+                  <button className="btn-ghost btn-sm" onClick={safeAction('I am blocked', () => void sendCoachMessage('I am blocked. Give one unblock action.'))}>I&apos;m blocked</button>
+                  <button className="btn-ghost btn-sm" onClick={safeAction('Close day', generateReport)}>Close day</button>
+                </div>
               </div>
+              <button className="btn-ghost btn-sm mb-2 self-start" onClick={() => setShowCoachHistory((prev) => !prev)}>{showCoachHistory ? 'Hide history' : 'Show history'}</button>
+              {showCoachHistory && (
+                <div className="min-h-0 max-h-[320px] flex-1 space-y-2 overflow-y-auto rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-[15px] leading-7">
+                  {state.coach_messages.map((m) => (
+                    <div key={m.id} className={`rounded-xl p-3 ${m.role === 'assistant' ? 'bg-slate-800/80 text-slate-100' : 'bg-amber-400/10 text-amber-100'}`}>
+                      <p className="text-xs uppercase tracking-widest text-slate-400">{m.role}</p>
+                      <p>{m.content}</p>
+                    </div>
+                  ))}
+                  {!state.coach_messages.length && <p className="text-sm text-slate-400">No coach messages yet. Ask what to do first.</p>}
+                </div>
+              )}
+              {!showCoachHistory && (
+                <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3 text-sm text-slate-400">
+                  Recommendation stays pinned above. Open history only when needed.
+                </div>
+              )}
               <div className="mt-3 flex gap-2">
-                <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask for coaching..." onKeyDown={(e) => e.key === 'Enter' && void sendCoachMessage()} />
+                <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask if blocked or unclear..." onKeyDown={(e) => e.key === 'Enter' && void sendCoachMessage()} />
                 <button className="btn-primary" onClick={safeAction('Send coach message', () => void sendCoachMessage())}>Send</button>
               </div>
             </div>
@@ -1180,11 +1259,67 @@ export default function DailyPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowResetConfirm(false)}>
             <div className="card w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
               <h2 className="text-xl font-black">Reset day</h2>
-              <p className="mt-1 text-sm text-slate-400">This clears today&apos;s outcomes, focus blocks, timeline, and report for this device/account. Continue?</p>
+              <p className="mt-1 text-sm text-slate-400">Reset today&apos;s plan? This clears today&apos;s outcomes and focus blocks, but keeps your lifetime XP, level, reports, and evidence vault.</p>
               <div className="mt-3 flex gap-2">
-                <button className="btn-danger" onClick={() => { setState(buildInitialState(today)); setShowResetConfirm(false); pushToast('Day reset.'); }}>Reset day</button>
+                <button className="btn-secondary" onClick={() => {
+                  try {
+                    const raw = localStorage.getItem(getReportsStorageKey());
+                    const list = raw ? JSON.parse(raw) : [];
+                    localStorage.setItem(getReportsStorageKey(), JSON.stringify([{ id: crypto.randomUUID(), type: 'daily_archive', report: state, created_at: nowIso() }, ...(Array.isArray(list) ? list : [])].slice(0, 200)));
+                  } catch {
+                    // ignore archive failure
+                  }
+                  setState(buildInitialState(today));
+                  setShowResetConfirm(false);
+                  pushToast('Archived today and reset.');
+                }}>Archive today and reset</button>
+                <button className="btn-danger" onClick={() => { setState(buildInitialState(today)); setShowResetConfirm(false); pushToast('Reset without archive.'); }}>Reset without archive</button>
                 <button className="btn-ghost" onClick={() => setShowResetConfirm(false)}>Cancel</button>
               </div>
+            </div>
+          </div>
+        )}
+        {workflowDraftSourceId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setWorkflowDraftSourceId(null)}>
+            <div className="card w-full max-w-2xl p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">Create workflow from outcome</h2>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <input className="input" value={workflowDraft.workflow_name} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, workflow_name: e.target.value }))} placeholder="Workflow name" />
+                <input className="input" value={workflowDraft.goal} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, goal: e.target.value }))} placeholder="Goal" />
+                <input className="input" value={workflowDraft.desired_result} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, desired_result: e.target.value }))} placeholder="Desired result" />
+                <input className="input" value={workflowDraft.proof_required} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, proof_required: e.target.value }))} placeholder="Proof required" />
+                <select className="input" value={workflowDraft.step_count} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, step_count: Number(e.target.value) as 5 | 7 | 10 }))}>
+                  <option value={5}>5 steps</option>
+                  <option value={7}>7 steps</option>
+                  <option value={10}>10 steps</option>
+                </select>
+                <select className="input" value={workflowDraft.style} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, style: e.target.value as 'fast checklist' | 'guided mode' | 'proof mode' | 'SOP mode' }))}>
+                  <option value="fast checklist">fast checklist</option>
+                  <option value="guided mode">guided mode</option>
+                  <option value="proof mode">proof mode</option>
+                  <option value="SOP mode">SOP mode</option>
+                </select>
+              </div>
+              <textarea className="input mt-2 min-h-20" value={workflowDraft.context} onChange={(e) => setWorkflowDraft((prev) => ({ ...prev, context: e.target.value }))} placeholder="Context for generation" />
+              {!workflowDraft.generated ? (
+                <div className="mt-3 flex gap-2">
+                  <button className="btn-primary" onClick={() => void convertOutcomeToWorkflow(workflowDraftSourceId)}>Generate preview</button>
+                  <button className="btn-ghost" onClick={() => setWorkflowDraftSourceId(null)}>Cancel</button>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/50 p-3">
+                    <p className="font-semibold text-white">{workflowDraft.generated.workflow_name}</p>
+                    <p className="text-xs text-slate-400">{workflowDraft.generated.steps.length} steps · {workflowDraft.generated.category}</p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="btn-primary" onClick={() => finalizeWorkflowFromDraft('start')}>Start workflow</button>
+                    <button className="btn-secondary" onClick={() => finalizeWorkflowFromDraft('save')}>Save workflow</button>
+                    <button className="btn-secondary" onClick={() => finalizeWorkflowFromDraft('edit')}>Edit workflow</button>
+                    <button className="btn-ghost" onClick={() => setWorkflowDraftSourceId(null)}>Cancel</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -1210,7 +1345,7 @@ export default function DailyPage() {
               <p className="mt-1 text-sm text-slate-400">This outcome has no proof yet.</p>
               <div className="mt-3 flex gap-2">
                 <button className="btn-secondary" onClick={() => { openProofModal(showCompleteWithoutProof); setShowCompleteWithoutProof(null); }}>Log proof first</button>
-                <button className="btn-primary" onClick={() => { const id = showCompleteWithoutProof; setShowCompleteWithoutProof(null); if (id) { updateState((prev) => ({ ...prev, outcomes: prev.outcomes.map((o) => o.id === id ? { ...o, status: 'done', completed_at: nowIso(), updated_at: nowIso() } : o) })); awardXP(20, 'Outcome complete'); } }}>Complete anyway</button>
+                <button className="btn-primary" onClick={() => { const id = showCompleteWithoutProof; setShowCompleteWithoutProof(null); if (id) { updateState((prev) => ({ ...prev, outcomes: prev.outcomes.map((o) => o.id === id ? { ...o, status: 'done', completed_at: nowIso(), updated_at: nowIso() } : o) })); setProgression((prev) => ({ ...prev, completed_outcomes_total: prev.completed_outcomes_total + 1 })); awardXP(25, 'Outcome complete', 'big'); } }}>Complete anyway</button>
                 <button className="btn-ghost" onClick={() => setShowCompleteWithoutProof(null)}>Cancel</button>
               </div>
             </div>

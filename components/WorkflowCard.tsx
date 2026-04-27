@@ -27,7 +27,7 @@ export function WorkflowCard({
       <div className="mb-4 flex flex-wrap gap-2">
         {workflow.required_tools.slice(0, 3).map((tool) => <span key={tool} className="badge">{tool}</span>)}
       </div>
-      <Link className="btn-secondary inline-flex" href={`/session/${workflow.id}`}>Open workflow</Link>
+      <Link className="btn-primary inline-flex" href={`/session/${workflow.id}`}>Start</Link>
     </div>
   );
 }

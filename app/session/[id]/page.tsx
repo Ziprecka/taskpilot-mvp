@@ -63,6 +63,7 @@ export default function SessionPage() {
   const [syncErrorDetail, setSyncErrorDetail] = useState<string>('');
   const [lastSavedAt, setLastSavedAt] = useState<string>(new Date().toISOString());
   const [mobileTab, setMobileTab] = useState<'step' | 'ai' | 'proof' | 'tracker'>('step');
+  const [showFullGoal, setShowFullGoal] = useState(false);
 
   useEffect(() => {
     setWorkflow(getWorkflowById(params.id));
@@ -482,7 +483,10 @@ export default function SessionPage() {
           <div>
             <p className="badge mb-2">{workflow.category} · {workflow.difficulty}</p>
             <h1 className="text-3xl font-black">{workflow.workflow_name}</h1>
-            <p className="mt-1 text-slate-400">Goal: {session.goal}</p>
+            <p className={`mt-1 text-slate-400 ${showFullGoal ? '' : 'line-clamp-2'}`}>Goal: {session.goal}</p>
+            {session.goal.length > 120 && (
+              <button className="btn-ghost btn-sm mt-1" onClick={() => setShowFullGoal((prev) => !prev)}>{showFullGoal ? 'Hide full brief' : 'Show full brief'}</button>
+            )}
             <p className="mt-1 text-sm text-slate-400">{session.completed_steps.length} / {workflow.steps.length} steps complete</p>
             <div className="mt-2 h-2 w-72 rounded-full bg-slate-800">
               <div className="h-2 rounded-full bg-amber-400" style={{ width: `${Math.round((session.completed_steps.length / Math.max(1, workflow.steps.length)) * 100)}%` }} />
@@ -526,7 +530,7 @@ export default function SessionPage() {
           <p className="text-sm text-slate-300">Current: {currentStep?.title}</p>
         </div>
         <div className="grid gap-5 lg:grid-cols-[300px_1fr_420px]">
-          <div className={`${mobileTab === 'tracker' ? 'block' : 'hidden'} lg:block`}>
+          <div className={`${mobileTab === 'tracker' ? 'block' : 'hidden'} overflow-y-auto lg:block`}>
             <StepTracker steps={workflow.steps} currentStep={session.current_step} completedSteps={session.completed_steps} proofStatusByStep={proofStatusByStep} />
           </div>
           <div className={`space-y-5 ${mobileTab === 'step' || mobileTab === 'proof' ? 'block' : 'hidden'} lg:block`}>
