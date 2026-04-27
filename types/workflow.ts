@@ -235,6 +235,7 @@ export interface DailyReport {
 export interface DailyDebrief {
   id: string;
   date: string;
+  original_goals?: string;
   summary: string;
   completed_outcomes: string[];
   unfinished_outcomes: string[];
@@ -293,6 +294,7 @@ export interface DailyCoachMessage {
 export type DailyCommandState = {
   date: string;
   status: 'planning' | 'focus' | 'blocked' | 'complete';
+  daily_goals?: string;
   selected_day_type: 'build' | 'money' | 'admin' | 'learning' | 'personal' | 'custom' | null;
   custom_context: string;
   outcomes: DailyOutcome[];

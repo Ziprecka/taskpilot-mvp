@@ -57,7 +57,7 @@ export default function GenerateWorkflowPage() {
     const id = raw.id || raw.slug || raw.workflow_name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const workflow: Workflow = {
       id,
-      workflow_name: raw.workflow_name || form.goal || 'Generated workflow',
+      workflow_name: raw.workflow_name || form.goal || 'Generated playbook',
       category: raw.category || form.category,
       difficulty: raw.difficulty || form.skill_level,
       estimated_time: raw.estimated_time || '90 minutes',
@@ -96,7 +96,7 @@ export default function GenerateWorkflowPage() {
     setGenerated(workflow);
     setSource(payload.source === 'openai' ? 'openai' : 'mock');
     setRequiresLoginToSave(Boolean(payload.requires_login_to_save));
-    setNotice(payload.requires_login_to_save ? 'You are in demo mode. Login required to save workflows.' : '');
+    setNotice(payload.requires_login_to_save ? 'You are in demo mode. Login required to save playbooks.' : '');
     setSaved(false);
     setWizardStep(2);
     setLoading(false);
@@ -153,8 +153,8 @@ export default function GenerateWorkflowPage() {
     <main>
       <Nav />
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-        <h1 className="mb-2 text-3xl font-black">Generate Workflow</h1>
-        <p className="mb-5 text-slate-400">Step {wizardStep} of 3 · Turn your goal into a practical, demo-ready workflow.</p>
+        <h1 className="mb-2 text-3xl font-black">Create Playbook</h1>
+        <p className="mb-5 text-slate-400">Step {wizardStep} of 3 · Turn a repeatable goal into a reusable execution system.</p>
 
         {wizardStep === 1 && (
           <div className="card mb-5 p-4 sm:p-5">
@@ -202,7 +202,7 @@ export default function GenerateWorkflowPage() {
               </select>
             </div>
             <button className="btn-primary mt-4 w-full sm:w-auto" onClick={generate} disabled={loading || !form.goal.trim()}>
-              {loading ? 'TaskPilot is turning your goal into a guided workflow...' : 'Generate Workflow'}
+              {loading ? 'TaskPilot is turning your goal into a guided playbook...' : 'Create Playbook'}
             </button>
             {notice && <p className="mt-2 text-sm text-amber-300">{notice}</p>}
           </div>
@@ -274,8 +274,8 @@ export default function GenerateWorkflowPage() {
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="btn-secondary" onClick={generate}>Regenerate</button>
-              <button className="btn-secondary" onClick={improveWorkflow} disabled={improving}>{improving ? 'Improving...' : 'Improve Workflow'}</button>
-              <button className="btn-secondary" onClick={() => setEditing((prev) => !prev)}>{editing ? 'Done Editing' : 'Edit workflow'}</button>
+              <button className="btn-secondary" onClick={improveWorkflow} disabled={improving}>{improving ? 'Improving...' : 'Improve Playbook'}</button>
+              <button className="btn-secondary" onClick={() => setEditing((prev) => !prev)}>{editing ? 'Done Editing' : 'Edit playbook'}</button>
               <button className="btn-primary" onClick={async () => generated && !requiresLoginToSave && saveAndOptionallySync(generated)} disabled={requiresLoginToSave}>{requiresLoginToSave ? 'Login to Save' : 'Save and Start'}</button>
             </div>
           </div>
@@ -284,7 +284,7 @@ export default function GenerateWorkflowPage() {
         {wizardStep === 3 && generated && saved && (
           <div className="card p-4 sm:p-5">
             <h2 className="mb-2 text-2xl font-black">Step 3 · Saved</h2>
-            <p className="mb-3 text-slate-300">Workflow saved. You can start now or review saved workflows.</p>
+            <p className="mb-3 text-slate-300">Playbook saved. You can start now or review saved playbooks.</p>
             <select className="input mb-3 max-w-xs" value={runMode} onChange={(e) => setRunMode(e.target.value as 'guided' | 'fast_checklist' | 'debug' | 'proof' | 'robot')}>
               <option value="guided">Guided Mode</option>
               <option value="fast_checklist">Fast Checklist Mode</option>
@@ -293,14 +293,14 @@ export default function GenerateWorkflowPage() {
               <option value="robot">Robot Mode</option>
             </select>
             <div className="flex flex-wrap gap-2">
-              <button className="btn-primary" onClick={() => router.push(`/session/${generated.id}?goal=${encodeURIComponent(form.goal || generated.workflow_name)}&mode=${runMode}`)}>Start Workflow</button>
-              <button className="btn-secondary" onClick={() => router.push('/workflows/saved')}>View Saved Workflows</button>
+              <button className="btn-primary" onClick={() => router.push(`/session/${generated.id}?goal=${encodeURIComponent(form.goal || generated.workflow_name)}&mode=${runMode}`)}>Start Playbook</button>
+              <button className="btn-secondary" onClick={() => router.push('/workflows/saved')}>View Playbook Library</button>
               <button className="btn-secondary" onClick={() => {
                 setWizardStep(1);
                 setGenerated(null);
                 setSaved(false);
                 setEditing(false);
-              }}>Generate Another</button>
+              }}>Create Another</button>
             </div>
           </div>
         )}

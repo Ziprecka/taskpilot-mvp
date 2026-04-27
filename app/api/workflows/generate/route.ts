@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAIClient } from '@/lib/openai';
-import { getCurrentUserId, getUserProfile } from '@/lib/auth';
+import { getCurrentUser, getCurrentUserId, getUserProfile } from '@/lib/auth';
 import { getSupabaseAdminClient } from '@/lib/supabase/admin';
 import { trackUsageEvent } from '@/lib/usage';
 
@@ -78,10 +78,18 @@ function buildMockWorkflow(body: any) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
+  const { user } = await getCurrentUser();
   const userId = await getCurrentUserId();
+  const betaUnlimited = process.env.TASKPILOT_BETA_UNLIMITED === 'true' || process.env.NEXT_PUBLIC_TASKPILOT_BETA_UNLIMITED === 'true';
+  const betaAdminEmails = String(process.env.TASKPILOT_BETA_ADMIN_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  const isBetaAdmin = Boolean(user?.email && betaAdminEmails.includes(user.email.toLowerCase()));
+  const bypassLimits = betaUnlimited || isBetaAdmin;
   if (userId) {
     const profile = await getUserProfile(userId);
-    if ((profile?.plan || 'free') === 'free') {
+    if ((profile?.plan || 'free') === 'free' && !bypassLimits) {
       const admin = getSupabaseAdminClient();
       if (admin) {
         const monthStart = new Date();
@@ -91,13 +99,15 @@ export async function POST(req: NextRequest) {
           .from('usage_events')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', userId)
-          .eq('event_type', 'workflow_generated')
+          .eq('event_type', 'playbook_generated')
           .gte('created_at', monthStart.toISOString());
         if ((usage.count || 0) >= 3 && process.env.NODE_ENV === 'production') {
           return NextResponse.json({
             ok: false,
-            error: 'Free plan limit reached: 3 generated workflows/month.',
-            upgrade_required: true
+            code: 'playbook_generation_limit',
+            error: 'You’ve hit today’s playbook generation limit.',
+            upgrade_required: true,
+            daily_planning_available: true
           }, { status: 402 });
         }
       }
@@ -105,8 +115,8 @@ export async function POST(req: NextRequest) {
   }
   const client = getOpenAIClient();
   if (!client) {
-    if (userId) await trackUsageEvent(userId, 'workflow_generated', { source: 'mock' });
-    return NextResponse.json({ ok: true, workflow: buildMockWorkflow(body), source: 'mock', requires_login_to_save: !userId });
+    if (userId) await trackUsageEvent(userId, 'playbook_generated', { source: 'mock' });
+    return NextResponse.json({ ok: true, workflow: buildMockWorkflow(body), source: 'mock', requires_login_to_save: !userId, beta_admin: isBetaAdmin });
   }
   try {
     const prompt = `Generate a practical workflow JSON with keys:
@@ -154,10 +164,10 @@ Rules:
         improvement_suggestions: []
       };
     }
-    if (userId) await trackUsageEvent(userId, 'workflow_generated', { source: 'openai' });
-    return NextResponse.json({ ok: true, workflow: merged, source: 'openai', requires_login_to_save: !userId });
+    if (userId) await trackUsageEvent(userId, 'playbook_generated', { source: 'openai' });
+    return NextResponse.json({ ok: true, workflow: merged, source: 'openai', requires_login_to_save: !userId, beta_admin: isBetaAdmin });
   } catch (error) {
-    if (userId) await trackUsageEvent(userId, 'workflow_generated', { source: 'mock_fallback_on_error' });
-    return NextResponse.json({ ok: true, workflow: buildMockWorkflow(body), source: 'mock', error: error instanceof Error ? error.message : 'generation_failed', requires_login_to_save: !userId });
+    if (userId) await trackUsageEvent(userId, 'playbook_generated', { source: 'mock_fallback_on_error' });
+    return NextResponse.json({ ok: true, workflow: buildMockWorkflow(body), source: 'mock', error: error instanceof Error ? error.message : 'generation_failed', requires_login_to_save: !userId, beta_admin: isBetaAdmin });
   }
 }

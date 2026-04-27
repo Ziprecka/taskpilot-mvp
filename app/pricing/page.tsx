@@ -35,21 +35,21 @@ export default function PricingPage() {
       name: 'Free Beta',
       cta: 'Start Free',
       href: '/signup',
-      points: ['3 generated workflows/month', '5 active sessions', 'Daily planning + focus', 'Basic reports', 'Local + cloud sync']
+      points: ['3 playbook generations', '5 active sessions', 'Daily planning + focus', 'Basic reports', 'Local + cloud sync']
     },
     {
       name: 'Pro',
       cta: 'Join Pro waitlist',
       feature: 'Pro',
       price: '$12-$19/mo',
-      points: ['Unlimited workflows and sessions', 'Advanced reports and exports', 'Proof uploads', 'Daily streak/history', 'Robot API access']
+      points: ['Unlimited playbooks and sessions', 'Advanced reports and exports', 'Proof uploads', 'Daily streak/history', 'Robot API access']
     },
     {
       name: 'Operator',
       cta: 'Contact / Coming soon',
       feature: 'Operator',
       price: '$39-$79/mo',
-      points: ['Client reports', 'SOP templates', 'Shared process library', 'Team-ready workflows', 'Priority features']
+      points: ['Client reports', 'SOP templates', 'Shared process library', 'Team-ready playbooks', 'Priority features']
     }
   ];
 
@@ -59,7 +59,7 @@ export default function PricingPage() {
       <section className="mx-auto max-w-6xl px-4 py-8">
         <p className="badge mb-2">Beta pricing</p>
         <h1 className="mb-2 text-4xl font-black">Use TaskPilot free during beta.</h1>
-        <p className="mb-6 text-slate-300">Plan your day, execute focus blocks, generate workflows, save proof-backed progress, and produce reports.</p>
+        <p className="mb-6 text-slate-300">Plan your day, execute focus blocks, create playbooks, save proof-backed progress, and produce reports.</p>
         <div className="grid gap-4 md:grid-cols-3">
           {plans.map((plan) => (
             <div key={plan.name} className="card p-5">

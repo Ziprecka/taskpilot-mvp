@@ -38,6 +38,13 @@ const BASE_OUTCOME_LIBRARY: Record<DayType, string[]> = {
   custom: ['Define one concrete one-day outcome', 'Set first action and proof requirement', 'Complete one focus block']
 };
 
+const GOAL_EXAMPLES = [
+  'Complete 3 details, capture before/after proof, send completion messages, log upsells.',
+  'Send 10 beta outreach messages, onboard 3 testers, collect feedback.',
+  'Fix one UX issue, deploy the change, record proof.',
+  'Clear overdue messages, update schedule, prep tomorrow.'
+];
+
 function evaluateOutcomeQuality(title: string, proofRequired: string): OutcomeQuality {
   const lower = title.toLowerCase();
   const issues: string[] = [];
@@ -96,6 +103,7 @@ function buildInitialState(date: string): DailyCommandState {
   return {
     date,
     status: 'planning',
+    daily_goals: '',
     selected_day_type: null,
     custom_context: '',
     outcomes: [],
@@ -125,6 +133,7 @@ export default function DailyPage() {
   const [aiMode, setAiMode] = useState<'openai' | 'mock'>('mock');
   const [syncLabel, setSyncLabel] = useState('Local');
   const [showPlanModal, setShowPlanModal] = useState(false);
+  const [dailyGoalsInput, setDailyGoalsInput] = useState('');
   const [showPlanReview, setShowPlanReview] = useState(false);
   const [proposedOutcomes, setProposedOutcomes] = useState<DailyOutcome[]>([]);
   const [customDirection, setCustomDirection] = useState('');
@@ -154,6 +163,8 @@ export default function DailyPage() {
   const [showDoThisModal, setShowDoThisModal] = useState(false);
   const [showAiDetails, setShowAiDetails] = useState(false);
   const [isCoachLoading, setIsCoachLoading] = useState(false);
+  const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
+  const [betaAdmin, setBetaAdmin] = useState(false);
   const [progression, setProgression] = useState<UserProgression>({
     total_xp: 0,
     level: 1,
@@ -239,6 +250,7 @@ export default function DailyPage() {
     setPlanWarning('');
     setProposedOutcomes([]);
     setShowPlanReview(false);
+    setDailyGoalsInput(state.daily_goals || '');
     setShowPlanModal(true);
   }
 
@@ -430,7 +442,8 @@ export default function DailyPage() {
     const userPrefs = (() => {
       try { return JSON.parse(localStorage.getItem('taskpilot-user-preferences') || '{}'); } catch { return {}; }
     })();
-    const prompt = `Plan top 3 outcomes for a ${chosenDayType} day. Context: ${customDirection || 'none'}.`;
+    const goalContext = dailyGoalsInput.trim() || customDirection.trim() || 'none';
+    const prompt = `Plan top 3 outcomes for a ${chosenDayType} day. Goals: ${goalContext}.`;
     setGenerationStage('Adding proof requirements');
     try {
       const res = await fetch('/api/daily/coach', {
@@ -440,7 +453,8 @@ export default function DailyPage() {
           message: prompt,
           generateTop3: true,
           selected_day_type: chosenDayType,
-          custom_context: customDirection,
+          custom_context: goalContext,
+          daily_goals: goalContext,
           existing_outcomes: state.outcomes,
           active_focus_block: state.active_focus_block,
           user_preferences: userPrefs,
@@ -463,6 +477,20 @@ export default function DailyPage() {
     }
   }
 
+  function createSimplePlanWithoutAI() {
+    const chosenDayType = selectedDayType || dayType || 'custom';
+    const source = dailyGoalsInput.trim() || customDirection.trim();
+    const rawItems = source
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    const generated = (rawItems.length ? rawItems : BASE_OUTCOME_LIBRARY[chosenDayType]).slice(0, 3);
+    setProposedOutcomes(generated.map((title, idx) => makeOutcome(title, idx)));
+    setShowPlanReview(true);
+    setPlanWarning('');
+  }
+
   function acceptProposedOutcomes(selectedIds?: string[]) {
     if (state.outcomes.length) {
       setShowReplacePrompt(true);
@@ -476,7 +504,8 @@ export default function DailyPage() {
     updateState((prev) => ({
       ...prev,
       selected_day_type: selectedDayType || dayType,
-      custom_context: customDirection,
+      custom_context: dailyGoalsInput.trim() || customDirection,
+      daily_goals: dailyGoalsInput.trim() || prev.daily_goals || '',
       outcomes: (mode === 'append'
         ? [...prev.outcomes, ...chosen]
         : [...prev.outcomes.filter((o) => o.status === 'done'), ...chosen]
@@ -711,6 +740,11 @@ export default function DailyPage() {
       })
     });
     const payload = await res.json();
+    if (!payload?.ok && payload?.code === 'playbook_generation_limit') {
+      setPlaybookLimitModalOpen(true);
+      return;
+    }
+    if (payload?.beta_admin) setBetaAdmin(true);
     const raw = payload?.workflow;
     if (!raw) return pushToast('Could not convert outcome right now.');
     const wf: Workflow = {
@@ -906,6 +940,9 @@ export default function DailyPage() {
 Summary:
 ${debrief.summary}
 
+Original Goals:
+${debrief.original_goals || state.daily_goals || 'none'}
+
 Completed:
 ${debrief.completed_outcomes.map((item) => `- ${item}`).join('\n') || '- none'}
 
@@ -948,6 +985,7 @@ Money: ${debrief.money_score}/100
     return {
       id: crypto.randomUUID(),
       date: state.date,
+      original_goals: state.daily_goals || customDirection || '',
       summary,
       completed_outcomes: completed.map((o) => o.title),
       unfinished_outcomes: unfinished.map((o) => o.title),
@@ -1203,6 +1241,7 @@ Money: ${debrief.money_score}/100
           <div className="flex flex-wrap gap-2">
             <span className="badge">AI: {aiMode === 'openai' ? 'OpenAI' : 'Mock'}</span>
             <span className="badge">Sync: {syncLabel}</span>
+            {betaAdmin && <span className="badge">Beta Admin</span>}
             <span className="badge">Saved: {new Date(state.last_saved_at || nowIso()).toLocaleTimeString()}</span>
             <button className="btn-secondary btn-sm" onClick={safeAction('Close day', () => setShowCloseDayModal(true))}>Close day</button>
             <button className="btn-ghost btn-sm" onClick={safeAction('Plan today', openPlanModal)}>Plan today</button>
@@ -1239,6 +1278,7 @@ Money: ${debrief.money_score}/100
           <div className="mb-4 card p-4">
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Daily Debrief Saved</h2>
             <p className="mt-1 text-sm text-slate-300">{state.debrief.summary}</p>
+            {!!state.debrief.original_goals && <p className="text-sm text-slate-300"><span className="text-slate-500">Original goals:</span> {state.debrief.original_goals}</p>}
             <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest win:</span> {state.debrief.biggest_win}</p>
             <p className="text-sm text-slate-300"><span className="text-slate-500">Lesson:</span> {state.debrief.lesson_learned}</p>
             <p className="text-sm text-slate-300"><span className="text-slate-500">Tomorrow first move:</span> {state.debrief.tomorrow_first_move}</p>
@@ -1262,6 +1302,38 @@ Money: ${debrief.money_score}/100
             <p>{Boolean(state.debrief?.tomorrow_first_move) ? '✓' : '○'} tomorrow move saved</p>
           </div>
         </details>
+
+        {!state.outcomes.length && state.status !== 'complete' && (
+          <div className="mb-5 card p-5">
+            <h2 className="text-2xl font-black">What are your goals for today?</h2>
+            <p className="mt-1 text-sm text-slate-400">Write messy goals. TaskPilot will turn them into outcomes, focus blocks, and proof.</p>
+            <textarea
+              className="input mt-3 min-h-28"
+              placeholder="Example: complete 3 details, send beta outreach, fix one app issue, prep tomorrow’s route…"
+              value={dailyGoalsInput}
+              onChange={(e) => setDailyGoalsInput(e.target.value)}
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(['money', 'build', 'admin', 'learning', 'personal', 'custom'] as DayType[]).map((type) => (
+                <button key={type} className="btn-secondary btn-sm" onClick={() => { setSelectedDayType(type); setDayType(type); }}>
+                  {type === 'money' ? 'Make money' : type === 'build' ? 'Build something' : type === 'admin' ? 'Admin cleanup' : type === 'learning' ? 'Learning' : type === 'personal' ? 'Personal' : 'Custom'}
+                </button>
+              ))}
+              <button className="btn-secondary btn-sm" onClick={() => { setSelectedDayType('build'); setDayType('build'); setDailyGoalsInput('Deliver client work with proof and follow-up.'); }}>Client work</button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {GOAL_EXAMPLES.map((example) => (
+                <button key={example} className="btn-ghost btn-sm" onClick={() => setDailyGoalsInput(example)}>{example}</button>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="btn-primary btn-sm" onClick={() => { openPlanModal(); }}>Build today&apos;s plan</button>
+              <button className="btn-secondary btn-sm" onClick={carryForward}>Use yesterday&apos;s carry-forward</button>
+              <button className="btn-ghost btn-sm" onClick={() => { setDailyGoalsInput(''); setSelectedDayType('custom'); setDayType('custom'); }}>Start from blank</button>
+              <button className="btn-ghost btn-sm" onClick={createSimplePlanWithoutAI}>Create simple plan without AI</button>
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr_1fr]">
           <div className={`${mobileTab === 'outcomes' ? 'block' : 'hidden'} lg:block`}>
@@ -1427,7 +1499,7 @@ Money: ${debrief.money_score}/100
                     <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(activeFocus.outcome_id))}>Blocked</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('End focus', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'complete', ended_at: nowIso() } : null, status: 'planning', active_outcome_id: null })); logEvent('completed_action', 'Focus ended.'); })}>End focus</button>
-                    <button className="btn-ghost btn-sm" onClick={safeAction('Turn into workflow', () => openWorkflowDraft(activeFocus.outcome_id))}>Turn into workflow</button>
+                    <button className="btn-ghost btn-sm" onClick={safeAction('Create playbook', () => openWorkflowDraft(activeFocus.outcome_id))}>Create playbook</button>
                   </div>
                 </div>
               )}
@@ -1589,9 +1661,10 @@ Money: ${debrief.money_score}/100
         {showPlanModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowPlanModal(false)}>
             <div className="card w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-xl font-black">{showPlanReview ? 'Review Today\'s Plan' : 'What kind of day are you planning?'}</h2>
+              <h2 className="text-xl font-black">{showPlanReview ? 'Today\'s execution plan' : 'What are your goals for today?'}</h2>
               {!showPlanReview && (
                 <>
+                  <p className="mt-1 text-sm text-slate-400">Write messy goals. TaskPilot will turn them into outcomes, focus blocks, and proof.</p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {(['build', 'money', 'admin', 'learning', 'personal', 'custom'] as DayType[]).map((type) => (
                       <button
@@ -1617,7 +1690,12 @@ Money: ${debrief.money_score}/100
                     {selectedDayType === 'custom' && 'Use your own context. TaskPilot will turn it into proof-backed outcomes.'}
                     {!selectedDayType && 'Choose a day type to shape your plan.'}
                   </p>
-                  <textarea className="input mt-3 min-h-24" value={customDirection} onChange={(e) => setCustomDirection(e.target.value)} placeholder="What is on your mind today?" />
+                  <textarea className="input mt-3 min-h-24" value={dailyGoalsInput} onChange={(e) => { setDailyGoalsInput(e.target.value); setCustomDirection(e.target.value); }} placeholder="Example: complete 3 details, send beta outreach, fix one app issue, prep tomorrow’s route..." />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {GOAL_EXAMPLES.map((example) => (
+                      <button key={example} className="btn-ghost btn-sm" onClick={() => setDailyGoalsInput(example)}>{example}</button>
+                    ))}
+                  </div>
                   {selectedDayType === 'build' && (
                     <button
                       className="btn-ghost btn-sm mt-2"
@@ -1643,7 +1721,7 @@ Money: ${debrief.money_score}/100
                       <p className="font-semibold">{outcome.title}</p>
                       <p className="text-xs text-slate-500">First action: {outcome.first_action}</p>
                       <p className="text-xs text-slate-500">Evidence: {outcome.proof_required}</p>
-                      <p className="text-xs text-slate-500">Est: {outcome.estimated_minutes}m · Value {outcome.value_score} · Leverage {outcome.leverage_score}</p>
+                      <p className="text-xs text-slate-500">Est: {outcome.estimated_minutes}m · Leverage {outcome.leverage_score} · Money {outcome.money_potential || 'low'} · Focus {Math.min(25, Math.max(10, Math.round((outcome.estimated_minutes || 30) / 2)))}m</p>
                     </div>
                   ))}
                 </div>
@@ -1653,14 +1731,16 @@ Money: ${debrief.money_score}/100
               <div className="mt-3 flex gap-2">
                 {!showPlanReview ? (
                   <>
-                    <button className="btn-primary" disabled={isGeneratingPlan} onClick={safeAction('Plan today', () => void proposePlan())}>Plan today</button>
+                    <button className="btn-primary" disabled={isGeneratingPlan} onClick={safeAction('Build today plan', () => void proposePlan())}>Build today&apos;s plan</button>
+                    <button className="btn-secondary" onClick={createSimplePlanWithoutAI}>Create simple plan without AI</button>
+                    <button className="btn-secondary" onClick={carryForward}>Use yesterday&apos;s carry-forward</button>
                     <button className="btn-ghost" onClick={() => setShowPlanModal(false)}>Cancel</button>
                   </>
                 ) : (
                   <>
                     <button className="btn-primary" onClick={() => acceptProposedOutcomesWithMode('replace')}>Accept plan</button>
+                    <button className="btn-secondary" onClick={() => setShowPlanReview(false)}>Edit</button>
                     <button className="btn-secondary" onClick={() => void proposePlan()}>Regenerate</button>
-                    <button className="btn-ghost" onClick={() => setShowPlanReview(false)}>Edit manually</button>
                     <button className="btn-ghost" onClick={() => setShowPlanModal(false)}>Cancel</button>
                   </>
                 )}
@@ -1897,6 +1977,20 @@ Money: ${debrief.money_score}/100
                 }}>Start 5-min timer</button>
                 <button className="btn-secondary btn-sm" onClick={() => { setShowDoThisModal(false); openProofModal(activeFocus.outcome_id); }}>Log proof</button>
                 <button className="btn-primary btn-sm" onClick={() => { setShowDoThisModal(false); if (state.active_outcome_id) completeOutcome(state.active_outcome_id); }}>Mark action done</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {playbookLimitModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setPlaybookLimitModalOpen(false)}>
+            <div className="card w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-xl font-black">You&apos;ve hit today&apos;s playbook generation limit.</h2>
+              <p className="mt-2 text-sm text-slate-300">Daily planning is still available. Playbook generation is limited during beta to control AI usage.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="btn-primary btn-sm" onClick={() => { setPlaybookLimitModalOpen(false); setMobileTab('outcomes'); }}>Continue in Today</button>
+                <button className="btn-secondary btn-sm" onClick={() => { setPlaybookLimitModalOpen(false); router.push('/workflows/generate'); }}>Use manual playbook builder</button>
+                <button className="btn-secondary btn-sm" onClick={() => { setPlaybookLimitModalOpen(false); router.push('/pricing'); }}>Join Pro waitlist</button>
+                <button className="btn-ghost btn-sm" onClick={() => setPlaybookLimitModalOpen(false)}>Dismiss</button>
               </div>
             </div>
           </div>

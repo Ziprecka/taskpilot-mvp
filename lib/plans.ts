@@ -1,7 +1,9 @@
 export type Plan = 'free' | 'pro' | 'team';
 
 export type PlanLimits = {
-  generated_workflows_per_month: number | 'unlimited';
+  playbook_generation: number | 'unlimited';
+  daily_plan_generation: number | 'unlimited';
+  copilot_messages: number | 'unlimited';
   active_sessions: number | 'unlimited';
   proof_uploads: boolean;
   daily_mode: boolean;
@@ -11,7 +13,9 @@ export type PlanLimits = {
 
 const LIMITS: Record<Plan, PlanLimits> = {
   free: {
-    generated_workflows_per_month: 3,
+    playbook_generation: 3,
+    daily_plan_generation: 'unlimited',
+    copilot_messages: 40,
     active_sessions: 5,
     proof_uploads: false,
     daily_mode: false,
@@ -19,7 +23,9 @@ const LIMITS: Record<Plan, PlanLimits> = {
     workflow_exports: false
   },
   pro: {
-    generated_workflows_per_month: 'unlimited',
+    playbook_generation: 'unlimited',
+    daily_plan_generation: 'unlimited',
+    copilot_messages: 'unlimited',
     active_sessions: 'unlimited',
     proof_uploads: true,
     daily_mode: true,
@@ -27,7 +33,9 @@ const LIMITS: Record<Plan, PlanLimits> = {
     workflow_exports: true
   },
   team: {
-    generated_workflows_per_month: 'unlimited',
+    playbook_generation: 'unlimited',
+    daily_plan_generation: 'unlimited',
+    copilot_messages: 'unlimited',
     active_sessions: 'unlimited',
     proof_uploads: true,
     daily_mode: true,
@@ -40,6 +48,6 @@ export function getPlanLimits(plan: Plan) {
   return LIMITS[plan] || LIMITS.free;
 }
 
-export function canUseFeature(userPlan: Plan, feature: keyof Omit<PlanLimits, 'generated_workflows_per_month' | 'active_sessions'>) {
+export function canUseFeature(userPlan: Plan, feature: keyof Omit<PlanLimits, 'playbook_generation' | 'daily_plan_generation' | 'copilot_messages' | 'active_sessions'>) {
   return Boolean(getPlanLimits(userPlan)[feature]);
 }

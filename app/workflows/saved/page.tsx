@@ -217,7 +217,7 @@ export default function SavedWorkflowsPage() {
         </div>
         {rows.length > 10 && (
           <div className="card mb-4 p-4">
-            <p className="text-sm text-slate-300">You have {rows.length} workflows. Want to clean up your library?</p>
+            <p className="text-sm text-slate-300">You have {rows.length} playbooks. Want to clean up your library?</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <button className="btn-secondary btn-sm" onClick={() => setView('pinned')}>Show only pinned</button>
               <button className="btn-secondary btn-sm" onClick={() => {
@@ -225,7 +225,7 @@ export default function SavedWorkflowsPage() {
                 const next = Array.from(new Set([...archived, ...unusedGenerated]));
                 setArchived(next);
                 localStorage.setItem('taskpilot-workflow-archived', JSON.stringify(next));
-              }}>Archive unused generated workflows</button>
+              }}>Archive unused generated playbooks</button>
               <button className="btn-ghost btn-sm" onClick={() => setView('archived')}>Manage library</button>
             </div>
           </div>

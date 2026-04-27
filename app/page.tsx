@@ -10,8 +10,8 @@ export default function HomePage() {
       <section className="mx-auto grid max-w-7xl items-start gap-10 px-6 py-14 md:grid-cols-[1.05fr_.95fr]">
         <div>
           <div className="badge mb-5">Daily Execution System</div>
-          <h1 className="mb-4 max-w-4xl text-5xl font-black leading-tight md:text-7xl">Turn goals into completed work.</h1>
-          <p className="mb-7 max-w-2xl text-lg text-slate-300">TaskPilot turns your day into outcomes, focus blocks, proof, XP, and progress reports.</p>
+          <h1 className="mb-4 max-w-4xl text-5xl font-black leading-tight md:text-7xl">Turn today&apos;s goals into completed work.</h1>
+          <p className="mb-7 max-w-2xl text-lg text-slate-300">Write your goals. TaskPilot turns them into outcomes, focus blocks, proof, and a daily debrief.</p>
           <div className="mb-4 flex flex-wrap gap-3">
             <Link href="/signup?next=/daily" className="btn-primary">Plan today</Link>
             <Link href="/demo" className="btn-secondary">Try the demo</Link>

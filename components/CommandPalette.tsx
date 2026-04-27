@@ -8,21 +8,16 @@ type ActionCommand = { label: string; action: string };
 
 const COMMANDS: Command[] = [
   { label: 'Go Home', href: '/dashboard' },
-  { label: 'Open Today', href: '/daily' },
-  { label: 'Open Playbooks', href: '/workflows/saved' },
-  { label: 'Open Reports', href: '/reports' },
   { label: 'Plan Today', href: '/daily' },
   { label: 'Continue Current Mission', href: '/daily' },
-  { label: 'Run Playbook in Today', href: '/workflows/saved' },
-  { label: 'Create Playbook from Outcome', href: '/daily' },
+  { label: 'Log Proof', href: '/daily' },
+  { label: 'Close Day', href: '/daily' },
+  { label: 'Create Playbook', href: '/workflows/generate' },
+  { label: 'Open Playbook Library', href: '/workflows/saved' },
+  { label: 'Open Reports', href: '/reports' },
   { label: 'View Latest Debrief', href: '/reports' },
   { label: 'Open Evidence Vault', href: '/proof' },
   { label: 'Demo', href: '/demo' },
-  { label: 'Open Setup', href: '/settings/setup' },
-  { label: 'Deploy', href: '/settings/deploy' },
-  { label: 'Mobile', href: '/settings/mobile' },
-  { label: 'Robot API', href: '/settings/robot' },
-  { label: 'Auth Debug', href: '/settings/auth-debug' },
   { label: 'Open Feedback', href: '/feedback' },
   { label: 'Account', href: '/account' },
   { label: 'Pricing', href: '/pricing' },
@@ -40,12 +35,11 @@ export function CommandPalette() {
   useEffect(() => {
     if (pathname.startsWith('/daily')) {
       setContextActions([
-        { label: 'New Daily Outcome', action: 'daily-add-outcome' },
         { label: 'Plan Today', action: 'daily-plan-today' },
-        { label: 'Start Focus', action: 'daily-start-focus' },
+        { label: 'Continue Current Mission', action: 'daily-start-focus' },
         { label: 'Log Proof', action: 'daily-log-proof' },
         { label: 'Close the Day', action: 'daily-generate-report' },
-        { label: 'Create Playbook from Outcome', action: 'daily-create-playbook' },
+        { label: 'Create Playbook', action: 'daily-create-playbook' },
         { label: 'Save Lesson', action: 'daily-save-lesson' }
         ,{ label: 'Improve this page', action: 'daily-improve-page' }
       ]);

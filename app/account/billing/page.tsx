@@ -20,7 +20,7 @@ export default async function BillingPage() {
           <p><span className="text-slate-500">Current plan:</span> {plan}</p>
           <p><span className="text-slate-500">Subscription status:</span> {profile?.subscription_status || 'free'}</p>
           <p><span className="text-slate-500">Beta pricing:</span> Free / Pro ($19 placeholder) / Team ($49 placeholder)</p>
-          <p><span className="text-slate-500">Plan limits:</span> generated workflows/month {String(limits.generated_workflows_per_month)}, active sessions {String(limits.active_sessions)}</p>
+          <p><span className="text-slate-500">Plan limits:</span> playbook generation {String(limits.playbook_generation)}, active sessions {String(limits.active_sessions)}</p>
           {!stripeConfigured && <p className="text-amber-300">Stripe is not configured yet. Billing checkout is coming soon.</p>}
           <div className="flex flex-wrap gap-2">
             <button className="btn-secondary" disabled>Upgrade to Pro (coming soon)</button>
