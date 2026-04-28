@@ -152,7 +152,6 @@ function addCompatFields(
   owner: { userId: string | null; email?: string | null; mapped?: boolean },
   raw?: { mission?: string; next_action?: string; proof?: string; last_synced_at?: string | null }
 ) {
-  const normalizedSource = source === 'active_today_mission' ? 'active_daily_mission' : source;
   const rawMission = raw?.mission || state.mission || 'Plan today';
   const rawNext = raw?.next_action || state.next_move || 'Create daily plan';
   const rawProof = raw?.proof || state.proof_needed || 'Start first mission';
@@ -168,7 +167,7 @@ function addCompatFields(
     current_task: 'Today',
     current_step: mission,
     next_action: next,
-    source: normalizedSource,
+    source,
     raw_mission: rawMission,
     short_mission: mission,
     raw_next_action: rawNext,
@@ -195,6 +194,8 @@ export async function GET(req: NextRequest) {
   const memoryDaily = getDailySnapshotForRobot(robotId);
   const guard = getDbGuard();
   const today = new Date().toISOString().slice(0, 10);
+  let fallbackReason: string | null = null;
+  if (!ownerUserId) fallbackReason = 'robot_id mismatch or owner_user_id mismatch';
   const dailyRobotState = ownerUserId && guard.ok
     ? await guard.supabase
         .from('daily_robot_state')
@@ -202,6 +203,16 @@ export async function GET(req: NextRequest) {
         .eq('user_id', ownerUserId)
         .eq('robot_id', robotId)
         .eq('day_key', today)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+  const latestDailyRobotState = ownerUserId && guard.ok
+    ? await guard.supabase
+        .from('daily_robot_state')
+        .select('*')
+        .eq('user_id', ownerUserId)
+        .eq('robot_id', robotId)
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -220,12 +231,33 @@ export async function GET(req: NextRequest) {
   });
   if (dailyRobotState.data) {
     const drs = dailyRobotState.data as Record<string, unknown>;
-    source = 'daily_robot_state';
-    display.status = String(drs.status || display.status) as typeof display.status;
-    display.mission = normalizeRobotMission(String(drs.mission_short_title || drs.mission_title || display.mission));
-    display.next_move = normalizeRobotNextMove(String(drs.next_move || display.next_move));
-    display.proof_needed = normalizeRobotProof(String(drs.proof_needed || display.proof_needed));
-    display.short_message = normalizeRobotShortMessage('Stay on this mission.');
+    const ageMs = Date.now() - new Date(String(drs.updated_at || new Date().toISOString())).getTime();
+    if (ageMs <= 24 * 60 * 60 * 1000) {
+      source = 'daily_robot_state';
+      display.status = String(drs.status || display.status) as typeof display.status;
+      display.mission = normalizeRobotMission(String(drs.mission_short_title || drs.mission_title || display.mission));
+      display.next_move = normalizeRobotNextMove(String(drs.next_move || display.next_move));
+      display.proof_needed = normalizeRobotProof(String(drs.proof_needed || display.proof_needed));
+      display.short_message = normalizeRobotShortMessage('Stay on this mission.');
+    } else {
+      fallbackReason = 'daily_robot_state stale';
+    }
+  } else if (latestDailyRobotState.data) {
+    const drs = latestDailyRobotState.data as Record<string, unknown>;
+    const ageMs = Date.now() - new Date(String(drs.updated_at || new Date().toISOString())).getTime();
+    if (ageMs <= 24 * 60 * 60 * 1000) {
+      source = 'daily_robot_state';
+      display.status = String(drs.status || display.status) as typeof display.status;
+      display.mission = normalizeRobotMission(String(drs.mission_short_title || drs.mission_title || display.mission));
+      display.next_move = normalizeRobotNextMove(String(drs.next_move || display.next_move));
+      display.proof_needed = normalizeRobotProof(String(drs.proof_needed || display.proof_needed));
+      display.short_message = normalizeRobotShortMessage('Using latest Today mission sync.');
+      fallbackReason = 'day_key mismatch';
+    } else {
+      fallbackReason = 'daily_robot_state stale';
+    }
+  } else {
+    fallbackReason = ownerUserId ? 'no daily_robot_state row' : fallbackReason;
   }
   const persisted = guard.ok
     ? await guard.supabase.from('robot_states').select('status,current_step,next_action,proof_needed,updated_at').eq('robot_id', robotId).maybeSingle()
@@ -239,13 +271,20 @@ export async function GET(req: NextRequest) {
       display.next_move = normalizeRobotNextMove(String(p?.next_action || display.next_move));
       display.proof_needed = normalizeRobotProof(String(p?.proof_needed || display.proof_needed));
       display.short_message = normalizeRobotShortMessage('Using latest synced Today mission.');
+      fallbackReason = null;
+    } else if (!fallbackReason) {
+      fallbackReason = 'daily state not synced';
     }
   }
   const compat = addCompatFields(display, source, owner, {
-    mission: state.current_step,
-    next_action: state.next_action,
-    proof: state.proof_needed,
-    last_synced_at: state.updated_at
+    mission: display.mission,
+    next_action: display.next_move,
+    proof: display.proof_needed,
+    last_synced_at: String(
+      (dailyRobotState.data as Record<string, unknown> | null)?.updated_at
+      || (latestDailyRobotState.data as Record<string, unknown> | null)?.updated_at
+      || state.updated_at
+    )
   });
   updateRobotState(robotId, state);
 
@@ -271,7 +310,15 @@ export async function GET(req: NextRequest) {
     state: compat,
     raw_state: state,
     meta: buildMeta(robotId),
-    warning: source === 'workflow_fallback' || source === 'idle_fallback' ? 'DeskBot fallback in use. Sync Today state.' : null
+    warning: source === 'workflow_fallback' || source === 'idle_fallback' ? 'DeskBot fallback in use. Sync Today state.' : null,
+    debug: {
+      today_sync_exists: Boolean(dailyRobotState.data),
+      latest_sync_exists: Boolean(latestDailyRobotState.data),
+      today_sync_updated_at: (dailyRobotState.data as Record<string, unknown> | null)?.updated_at || null,
+      latest_sync_updated_at: (latestDailyRobotState.data as Record<string, unknown> | null)?.updated_at || null,
+      source_used: source,
+      fallback_reason: source === 'workflow_fallback' || source === 'idle_fallback' ? fallbackReason : null
+    }
   });
 }
 
@@ -296,9 +343,9 @@ export async function POST(req: NextRequest) {
   const state = updateRobotState(robotId, computed);
   const display = toRobotDisplayState(robotId, memoryDaily, { online, last_seen_at: lastSeen });
   const compat = addCompatFields(display, memoryDaily ? 'active_daily_mission' : 'idle_fallback', owner, {
-    mission: computed.current_step,
-    next_action: computed.next_action,
-    proof: computed.proof_needed,
+    mission: display.mission,
+    next_action: display.next_move,
+    proof: display.proof_needed,
     last_synced_at: computed.updated_at
   });
 

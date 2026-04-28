@@ -50,7 +50,7 @@ export default function RobotSettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [robotId, setRobotId] = useState(DEFAULT_ROBOT_ID);
   const [baseUrl, setBaseUrl] = useState('https://taskpilot.live');
-  const [stateResp, setStateResp] = useState<{ state?: RobotStateView; meta?: RobotMeta; warning?: string | null } | null>(null);
+  const [stateResp, setStateResp] = useState<{ state?: RobotStateView; meta?: RobotMeta; warning?: string | null; debug?: { today_sync_exists?: boolean; latest_sync_exists?: boolean; today_sync_updated_at?: string | null; latest_sync_updated_at?: string | null; source_used?: string; fallback_reason?: string | null } } | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -74,8 +74,8 @@ export default function RobotSettingsPage() {
     const res = await fetch(`/api/robot/state?robot_id=${encodeURIComponent(robotId.trim() || DEFAULT_ROBOT_ID)}`, {
       headers: { 'x-taskpilot-robot-key': apiKey.trim() }
     });
-    const data = await res.json() as { ok?: boolean; state?: RobotStateView; meta?: RobotMeta; warning?: string | null };
-    setStateResp(data.ok ? { state: data.state, meta: data.meta, warning: data.warning } : null);
+    const data = await res.json() as { ok?: boolean; state?: RobotStateView; meta?: RobotMeta; warning?: string | null; debug?: { today_sync_exists?: boolean; latest_sync_exists?: boolean; today_sync_updated_at?: string | null; latest_sync_updated_at?: string | null; source_used?: string; fallback_reason?: string | null } };
+    setStateResp(data.ok ? { state: data.state, meta: data.meta, warning: data.warning, debug: data.debug } : null);
     setOutput(JSON.stringify(data, null, 2));
   }, [apiKey, robotId]);
 
@@ -211,6 +211,12 @@ export default function RobotSettingsPage() {
           <p className="text-xs text-slate-400">Short next action: {rstate?.short_next_action || rstate?.next_move || '—'}</p>
           <p className="text-xs text-slate-400">Raw proof: {rstate?.raw_proof || '—'}</p>
           <p className="text-xs text-slate-400">Short proof: {rstate?.short_proof || rstate?.proof_needed || '—'}</p>
+          <p className="mt-2 text-xs text-slate-400">Today sync status:</p>
+          <p className="text-xs text-slate-400">- daily_robot_state row exists: {stateResp?.debug?.today_sync_exists ? 'yes' : 'no'}</p>
+          <p className="text-xs text-slate-400">- latest sync row exists: {stateResp?.debug?.latest_sync_exists ? 'yes' : 'no'}</p>
+          <p className="text-xs text-slate-400">- daily_robot_state updated_at: {stateResp?.debug?.today_sync_updated_at || '—'}</p>
+          <p className="text-xs text-slate-400">- source used: {stateResp?.debug?.source_used || rstate?.source || '—'}</p>
+          <p className="text-xs text-slate-400">- fallback reason: {stateResp?.debug?.fallback_reason || 'none'}</p>
           {rstate?.source === 'workflow_fallback' && (
             <p className="mt-2 text-xs text-amber-300">DeskBot is using workflow fallback instead of active Today mission.</p>
           )}

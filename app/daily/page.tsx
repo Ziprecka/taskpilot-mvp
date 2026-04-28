@@ -26,7 +26,7 @@ import { trackEvent } from '@/lib/trackEvent';
 import { getDailyStorageKey, getReportsStorageKey, getUserProgressionStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
 import { DEFAULT_ROBOT_ID, ROBOT_API_KEY_LS, ROBOT_ID_LS, secondsAgoLabel } from '@/lib/robotClientSettings';
-import { syncDeskBotStateFromToday } from '@/lib/robotSync';
+import { syncTodayDeskBotPayload } from '@/lib/robotSync';
 import { TODAY_BUTTON_AUDIT } from '@/lib/buttonAudit';
 import type { PlanBuilderOutput } from '@/types/planBuilder';
 import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyDebrief, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
@@ -333,29 +333,51 @@ export default function DailyPage() {
     const key = localStorage.getItem(ROBOT_API_KEY_LS);
     const rid = localStorage.getItem(ROBOT_ID_LS) || DEFAULT_ROBOT_ID;
     setDeskBotSyncStatus('waiting');
-    void syncDeskBotStateFromToday(null, state, rid, 'today_state_changed').then((res) => {
+    void syncTodayDeskBotPayload(state, rid).then((res) => {
       if (!res.ok) return setDeskBotSyncStatus('error');
       const source = String((res.data as { state?: { source?: string } })?.state?.source || '');
-      setDeskBotSyncStatus(source === 'fallback' ? 'fallback' : 'synced');
+      setDeskBotSyncStatus(source === 'workflow_fallback' || source === 'idle_fallback' ? 'fallback' : 'synced');
     });
     if (!key) return;
-    const timeout = window.setTimeout(() => {
-      void fetch('/api/robot/state', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-taskpilot-robot-key': key },
-        body: JSON.stringify({ robot_id: rid, daily_snapshot: state })
+    void fetch(`/api/robot/state?robot_id=${encodeURIComponent(rid)}`, {
+      headers: { 'x-taskpilot-robot-key': key }
+    })
+      .then((r) => r.json())
+      .then((data: { meta?: { online?: boolean; last_heartbeat_at?: string | null }; state?: { mission?: string; next_move?: string; proof_needed?: string; button_hint?: string; source?: string } }) => {
+        if (data?.meta) setDeskBotMeta(data.meta);
+        if (data?.state) setDeskBotState(data.state);
+        const source = String(data?.state?.source || '');
+        setDeskBotSyncStatus(source === 'workflow_fallback' || source === 'idle_fallback' ? 'fallback' : 'synced');
+      })
+      .catch(() => setDeskBotSyncStatus('error'));
+  }, [state]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = localStorage.getItem(ROBOT_API_KEY_LS);
+    const rid = localStorage.getItem(ROBOT_ID_LS) || DEFAULT_ROBOT_ID;
+    if (!key) return;
+    const run = () =>
+      void fetch(`/api/deskbot/status?robot_id=${encodeURIComponent(rid)}`, {
+        headers: { 'x-taskpilot-robot-key': key }
       })
         .then((r) => r.json())
-        .then((data: { meta?: { online?: boolean; last_heartbeat_at?: string | null }; state?: { mission?: string; next_move?: string; proof_needed?: string; button_hint?: string; source?: string } }) => {
-          if (data?.meta) setDeskBotMeta(data.meta);
-          if (data?.state) setDeskBotState(data.state);
-          const source = String(data?.state?.source || '');
-          setDeskBotSyncStatus(source === 'workflow_fallback' || source === 'idle_fallback' ? 'fallback' : 'waiting');
+        .then((data: { ok?: boolean; online?: boolean; last_heartbeat_at?: string | null; state?: { current_step?: string; next_action?: string; proof_needed?: string; source?: string } }) => {
+          if (!data?.ok) return;
+          setDeskBotMeta({ online: data.online, last_heartbeat_at: data.last_heartbeat_at || null });
+          setDeskBotState((prev) => ({
+            mission: data?.state?.current_step || prev?.mission,
+            next_move: data?.state?.next_action || prev?.next_move,
+            proof_needed: data?.state?.proof_needed || prev?.proof_needed,
+            button_hint: prev?.button_hint || 'Press = check in',
+            source: data?.state?.source || prev?.source
+          }));
         })
-        .catch(() => setDeskBotSyncStatus('error'));
-    }, 2200);
-    return () => clearTimeout(timeout);
-  }, [state]);
+        .catch(() => null);
+    run();
+    const id = window.setInterval(run, 6000);
+    return () => clearInterval(id);
+  }, [deskBotConfigured]);
 
   useEffect(() => {
     if (!state.active_focus_block || state.active_focus_block.status !== 'active') return;
@@ -1327,6 +1349,22 @@ Money: ${debrief.money_score}/100
           syncStatus={deskBotSyncStatus}
           hint={deskBotState?.button_hint}
         />
+        {betaAdmin && (
+          <div className="mb-4">
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => {
+                const rid = localStorage.getItem(ROBOT_ID_LS) || DEFAULT_ROBOT_ID;
+                void syncTodayDeskBotPayload(state, rid).then((res) => {
+                  setDeskBotSyncStatus(res.ok ? 'synced' : 'error');
+                  pushToast(res.ok ? 'DeskBot synced from current Today state.' : 'DeskBot sync failed.');
+                });
+              }}
+            >
+              Sync DeskBot
+            </button>
+          </div>
+        )}
 
         <div className="mb-4 flex flex-wrap gap-2 lg:hidden">
           {(['outcomes', 'focus', 'coach', 'timeline', 'report'] as DailyTab[]).map((tab) => (

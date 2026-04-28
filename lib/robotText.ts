@@ -12,7 +12,10 @@ const PHRASE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/start a 5-minute first move/i, 'Start first task'],
   [/write messy goals/i, 'Plan today'],
   [/plan today in taskpilot/i, 'Create daily plan'],
-  [/no mission yet/i, 'Plan today']
+  [/no mission yet/i, 'Plan today'],
+  [/send 10 targeted messages \+ log proofs\.?/i, '10 outreach msgs'],
+  [/draft message a and message b.*$/i, 'Draft 2 messages'],
+  [/screenshots or exported csv proving sends.*$/i, 'Screenshot sends']
 ];
 
 function cleanRobotText(text: string): string {
