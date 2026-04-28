@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: 401 });
   const body = await req.json();
   if (!body?.robot_id) return NextResponse.json({ ok: false, error: 'Missing robot_id.' }, { status: 400 });
-  markHeartbeat();
+  markHeartbeat(body.robot_id);
   updateRobotState(body.robot_id, { status: body.status ?? 'idle' });
   const guard = getDbGuard();
   if (guard.ok) {

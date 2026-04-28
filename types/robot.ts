@@ -12,10 +12,12 @@ export type RobotCommandType =
   | 'gesture'
   | 'show_status'
   | 'capture_proof'
+  | 'request_proof'
+  | 'blocked_prompt'
+  | 'daily_briefing'
   | 'start_focus'
   | 'stop_focus'
-  | 'check_in'
-  | 'daily_briefing';
+  | 'check_in';
 
 export type RobotRegistration = {
   robot_id: string;
@@ -64,10 +66,14 @@ export type RobotEvent = {
     | 'boot'
     | 'heartbeat'
     | 'button_pressed'
+    | 'long_press'
+    | 'double_press'
     | 'voice_command'
     | 'photo_captured'
     | 'checkin_due'
     | 'proof_uploaded'
+    | 'blocked'
+    | 'proof_request'
     | 'error';
   content: string;
   metadata: Record<string, unknown>;

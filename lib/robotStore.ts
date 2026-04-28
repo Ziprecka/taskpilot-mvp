@@ -1,10 +1,15 @@
+import type { DailyCommandState } from '@/types/workflow';
 import type { RobotCommand, RobotEvent, RobotRegistration, RobotState } from '@/types/robot';
 
 const robots = new Map<string, RobotRegistration>();
 const states = new Map<string, RobotState>();
+const dailySnapshots = new Map<string, DailyCommandState>();
+const robotHeartbeats = new Map<string, string>();
 const events: RobotEvent[] = [];
 const commands: RobotCommand[] = [];
 let lastHeartbeatAt: string | null = null;
+
+const ONLINE_MS = 45_000;
 
 export function registerRobot(data: Omit<RobotRegistration, 'last_seen_at'>): RobotRegistration {
   const robot: RobotRegistration = {
@@ -92,8 +97,45 @@ export function acknowledgeRobotCommand(commandId: string, status: RobotCommand[
   return command;
 }
 
-export function markHeartbeat() {
-  lastHeartbeatAt = new Date().toISOString();
+export function markHeartbeat(robotId?: string) {
+  const t = new Date().toISOString();
+  lastHeartbeatAt = t;
+  if (robotId) robotHeartbeats.set(robotId, t);
+}
+
+export function getLastRobotHeartbeat(robotId: string): string | null {
+  return robotHeartbeats.get(robotId) ?? null;
+}
+
+export function isRobotOnline(robotId: string): boolean {
+  const iso = robotHeartbeats.get(robotId);
+  if (!iso) return false;
+  return Date.now() - new Date(iso).getTime() < ONLINE_MS;
+}
+
+export function setDailySnapshotForRobot(robotId: string, daily: DailyCommandState) {
+  dailySnapshots.set(robotId, daily);
+}
+
+export function getDailySnapshotForRobot(robotId: string): DailyCommandState | null {
+  return dailySnapshots.get(robotId) ?? null;
+}
+
+export function countRobotEvents(robotId: string): number {
+  return events.filter((e) => e.robot_id === robotId).length;
+}
+
+/** Physical-ish Atom events only (short press family). */
+export function countRobotButtonLikeEvents(robotId: string): number {
+  return events.filter(
+    (e) =>
+      e.robot_id === robotId &&
+      (e.event_type === 'button_pressed' || e.event_type === 'long_press' || e.event_type === 'double_press')
+  ).length;
+}
+
+export function getLastRobotEvent(robotId: string): RobotEvent | null {
+  return events.find((e) => e.robot_id === robotId) ?? null;
 }
 
 export function getRobotStoreHealth() {

@@ -1,7 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateRobotRequest } from '@/lib/robotAuth';
-import { addRobotCommand, addRobotEvent, getRobotState } from '@/lib/robotStore';
+import {
+  addRobotCommand,
+  addRobotEvent,
+  getDailySnapshotForRobot,
+  getRobotState
+} from '@/lib/robotStore';
 import { getDbGuard } from '@/lib/db';
+import { getRobotFriendlyState, truncate, type RobotDeskDisplayStatus } from '@/lib/robotState';
+import type { RobotCommandType, RobotEvent } from '@/types/robot';
+
+function replyFromSnapshot(robotId: string): {
+  message: string;
+  status: RobotDeskDisplayStatus;
+  next_action: string;
+} {
+  const snap = getDailySnapshotForRobot(robotId);
+  const f = getRobotFriendlyState(null, robotId, snap);
+  return {
+    message: truncate(f.ai_message, 120),
+    status: f.status,
+    next_action: truncate(f.next_action, 48)
+  };
+}
 
 export async function POST(req: NextRequest) {
   const auth = validateRobotRequest(req);
@@ -10,9 +31,12 @@ export async function POST(req: NextRequest) {
   if (!body?.robot_id || !body?.event_type) {
     return NextResponse.json({ ok: false, error: 'Missing required fields.' }, { status: 400 });
   }
+  const robotId = body.robot_id as string;
+  const eventType = body.event_type as string;
+
   const savedEvent = addRobotEvent({
-    robot_id: body.robot_id,
-    event_type: body.event_type,
+    robot_id: robotId,
+    event_type: eventType as RobotEvent['event_type'],
     content: body.content ?? '',
     metadata: body.metadata ?? {}
   });
@@ -27,20 +51,19 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  let command = null;
-  if (body.event_type === 'checkin_due' || body.event_type === 'button_pressed' || body.event_type === 'voice_command') {
-    const state = getRobotState(body.robot_id);
-    command = addRobotCommand({
-      robot_id: body.robot_id,
-      type: 'speak',
-      message:
-        body.event_type === 'voice_command'
-          ? 'Current task: Add robot API routes. Next action: run /api/robot/state and share result.'
-          : `Current task: ${state?.current_step ?? 'Add robot API routes'}. What progress can you show?`,
-      payload: {}
+  const base = replyFromSnapshot(robotId);
+  let robot_reply = { ...base };
+  let lastCommand: ReturnType<typeof addRobotCommand> | null = null;
+
+  function queue(type: RobotCommandType, message: string) {
+    const command = addRobotCommand({
+      robot_id: robotId,
+      type,
+      message,
+      payload: { source_event: eventType }
     });
     if (guard.ok) {
-      await guard.supabase.from('robot_commands').insert({
+      void guard.supabase.from('robot_commands').insert({
         robot_id: command.robot_id,
         type: command.type,
         message: command.message,
@@ -49,11 +72,85 @@ export async function POST(req: NextRequest) {
         created_at: command.created_at
       });
     }
+    return command;
   }
 
+  switch (eventType) {
+    case 'button_pressed':
+      robot_reply = {
+        message: truncate(`Next: ${base.next_action}`, 120),
+        status: base.status,
+        next_action: base.next_action
+      };
+      lastCommand = queue('show_status', truncate(base.next_action, 80));
+      break;
+    case 'long_press':
+      robot_reply = {
+        message: 'Open TaskPilot → mark outcome Blocked. Tell us what stopped you.',
+        status: 'blocked',
+        next_action: 'Log blocker note on Daily Command Center.'
+      };
+      lastCommand = queue('blocked_prompt', 'Long press: log blocker in TaskPilot.');
+      break;
+    case 'double_press':
+      robot_reply = {
+        message: 'Proof needed before done. Capture photo or screenshot.',
+        status: 'waiting_for_proof',
+        next_action: 'Upload proof for the active mission.'
+      };
+      lastCommand = queue('request_proof', 'Double tap: log proof now.');
+      break;
+    case 'checkin_due': {
+      const brief = getRobotFriendlyState(null, robotId, getDailySnapshotForRobot(robotId));
+      robot_reply = {
+        message: truncate(`Check-in: ${brief.next_action}`, 120),
+        status: brief.status,
+        next_action: brief.next_action
+      };
+      lastCommand = queue('daily_briefing', truncate(brief.ai_message || brief.next_action, 80));
+      break;
+    }
+    case 'blocked':
+      robot_reply = {
+        message: 'Blocker logged. Resolve in TaskPilot to continue.',
+        status: 'blocked',
+        next_action: 'Clear blocker or edit outcome.'
+      };
+      lastCommand = queue('blocked_prompt', 'Blocked event received.');
+      break;
+    case 'proof_request':
+      robot_reply = {
+        message: 'Proof reminder: attach evidence for current mission.',
+        status: 'waiting_for_proof',
+        next_action: 'Save proof text or photo in TaskPilot.'
+      };
+      lastCommand = queue('request_proof', 'Proof request.');
+      break;
+    case 'voice_command':
+      robot_reply = {
+        message: truncate(`Voice: ${base.next_action}`, 120),
+        status: base.status,
+        next_action: base.next_action
+      };
+      lastCommand = queue('speak', truncate(base.next_action, 80));
+      break;
+    default:
+      lastCommand = queue('speak', truncate(base.next_action, 80));
+      break;
+  }
+
+  const state = getRobotState(robotId);
   return NextResponse.json({
     ok: true,
     event_saved: true,
-    command
+    robot_reply,
+    command: lastCommand,
+    state_snapshot: state
+      ? {
+          current_step: state.current_step,
+          next_action: state.next_action,
+          proof_needed: state.proof_needed
+        }
+      : null
   });
 }

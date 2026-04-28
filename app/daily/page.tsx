@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DailyLoopProgress } from '@/components/DailyLoopProgress';
 import { DailyScorecard } from '@/components/DailyScorecard';
@@ -15,6 +16,7 @@ import { addRecentActivity } from '@/lib/activity';
 import { trackProductEvent } from '@/lib/productEvents';
 import { getDailyStorageKey, getReportsStorageKey, getUserProgressionStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
+import { DEFAULT_ROBOT_ID, ROBOT_API_KEY_LS, ROBOT_ID_LS, secondsAgoLabel } from '@/lib/robotClientSettings';
 import { buildPlan } from '@/lib/planBuilder';
 import type { DetectedWorkType, PlanBuilderOutput } from '@/types/planBuilder';
 import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyDebrief, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
@@ -150,6 +152,10 @@ export default function DailyPage() {
   const [isCoachLoading, setIsCoachLoading] = useState(false);
   const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
   const [betaAdmin, setBetaAdmin] = useState(false);
+  const [deskBotMeta, setDeskBotMeta] = useState<{ online?: boolean; last_heartbeat_at?: string | null } | null>(null);
+  const [deskBotMission, setDeskBotMission] = useState<string | null>(null);
+  const [deskBotConfigured, setDeskBotConfigured] = useState(false);
+  const [deskBotUiTick, setDeskBotUiTick] = useState(0);
   const [progression, setProgression] = useState<UserProgression>({
     total_xp: 0,
     level: 1,
@@ -292,6 +298,46 @@ export default function DailyPage() {
   useEffect(() => {
     localStorage.setItem(getUserProgressionStorageKey(), JSON.stringify(progression));
   }, [progression]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    function refreshDeskConfig() {
+      setDeskBotConfigured(Boolean(localStorage.getItem(ROBOT_API_KEY_LS)));
+    }
+    refreshDeskConfig();
+    window.addEventListener('focus', refreshDeskConfig);
+    window.addEventListener('storage', refreshDeskConfig);
+    return () => {
+      window.removeEventListener('focus', refreshDeskConfig);
+      window.removeEventListener('storage', refreshDeskConfig);
+    };
+  }, []);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setDeskBotUiTick((n) => n + 1), 2000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = localStorage.getItem(ROBOT_API_KEY_LS);
+    const rid = localStorage.getItem(ROBOT_ID_LS) || DEFAULT_ROBOT_ID;
+    if (!key) return;
+    const timeout = window.setTimeout(() => {
+      void fetch('/api/robot/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-taskpilot-robot-key': key },
+        body: JSON.stringify({ robot_id: rid, daily_snapshot: state })
+      })
+        .then((r) => r.json())
+        .then((data: { meta?: { online?: boolean; last_heartbeat_at?: string | null }; state?: { current_step?: string } }) => {
+          if (data?.meta) setDeskBotMeta(data.meta);
+          if (data?.state?.current_step !== undefined) setDeskBotMission(String(data.state.current_step));
+        })
+        .catch(() => null);
+    }, 2200);
+    return () => clearTimeout(timeout);
+  }, [state]);
 
   useEffect(() => {
     if (!state.active_focus_block || state.active_focus_block.status !== 'active') return;
@@ -1211,6 +1257,29 @@ Money: ${debrief.money_score}/100
             <span className="badge">Sync: {syncLabel}</span>
             {betaAdmin && <span className="badge">Beta Admin</span>}
             <span className="badge">Saved: {new Date(state.last_saved_at || nowIso()).toLocaleTimeString()}</span>
+            <Link
+              href="/settings/robot"
+              className={`badge cursor-pointer border transition hover:border-amber-400/45 ${
+                deskBotConfigured && deskBotMeta?.online
+                  ? 'border-emerald-500/40 text-emerald-200'
+                  : deskBotConfigured
+                    ? 'border-slate-600 text-slate-400'
+                    : 'border-slate-700 text-slate-500'
+              }`}
+              title="DeskBot · Atom S3R status"
+            >
+              {!deskBotConfigured ? (
+                <>DeskBot · Link key in Settings</>
+              ) : (
+                <>
+                  DeskBot {deskBotMeta?.online ? 'Online' : 'Offline'} · Last seen {secondsAgoLabel(deskBotMeta?.last_heartbeat_at)}
+                  {deskBotMission
+                    ? ` · ${deskBotMission.length > 36 ? `${deskBotMission.slice(0, 36)}…` : deskBotMission}`
+                    : ''}
+                  <span className="sr-only">{deskBotUiTick}</span>
+                </>
+              )}
+            </Link>
             <button className="btn-secondary btn-sm" onClick={safeAction('Close day', () => setShowCloseDayModal(true))}>Close day</button>
             <button className="btn-ghost btn-sm" onClick={safeAction('Plan today', openPlanModal)}>Plan today</button>
             <button className="btn-ghost btn-sm" onClick={() => setShowResetConfirm(true)}>Reset day</button>
