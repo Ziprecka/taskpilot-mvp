@@ -7,7 +7,7 @@ export const sampleWorkflows: Workflow[] = [
     category: 'productivity',
     difficulty: 'beginner',
     estimated_time: '15 minutes',
-    required_tools: ['TaskPilot Daily Mode'],
+    required_tools: ['TaskPilot Today'],
     required_materials: [],
     prerequisites: ['Know what kind of day you are planning'],
     steps: [
@@ -265,7 +265,7 @@ export const sampleWorkflows: Workflow[] = [
     category: 'productivity',
     difficulty: 'beginner',
     estimated_time: '20 minutes',
-    required_tools: ['TaskPilot Daily Mode', 'Notes'],
+    required_tools: ['TaskPilot Today', 'Notes'],
     required_materials: [],
     prerequisites: ['Identify one blocked task'],
     steps: [

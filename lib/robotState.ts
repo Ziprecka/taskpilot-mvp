@@ -126,9 +126,9 @@ export function getRobotFriendlyState(_userId: string | null | undefined, robotI
       active_session_id: null,
       active_daily_focus_id: null,
       current_task: truncate('Daily Command Center', 24),
-      current_step: truncate('No plan yet', 32),
-      next_action: truncate('Plan today in TaskPilot.', 48),
-      proof_needed: truncate('', 48),
+      current_step: truncate('No plan yet', 24),
+      next_action: truncate('Plan today in TaskPilot.', 36),
+      proof_needed: truncate('', 36),
       drift_risk: 'low',
       last_progress_minutes_ago: 999,
       ai_message: truncate('Open Daily and save your execution plan.', 80)
@@ -139,14 +139,14 @@ export function getRobotFriendlyState(_userId: string | null | undefined, robotI
   const status = deriveDeskStatus(daily, mission);
 
   const current_task = truncate('Daily Command Center', 24);
-  const current_step = truncate(mission?.short_title || mission?.title || (daily.outcomes?.length ? 'Today plan' : 'No plan'), 32);
+  const current_step = truncate(mission?.short_title || mission?.title || (daily.outcomes?.length ? 'Today plan' : 'No plan'), 24);
 
-  let next_action = truncate(nextActionLine(daily!, mission), 48);
+  let next_action = truncate(nextActionLine(daily!, mission), 36);
   if (!daily?.outcomes?.length) {
-    next_action = truncate('Plan today in TaskPilot.', 48);
+    next_action = truncate('Plan today in TaskPilot.', 36);
   }
 
-  const proof_needed = truncate(proofLine(mission), 48);
+  const proof_needed = truncate(proofLine(mission), 36);
 
   const driftSource = daily?.active_focus_block?.drift_score ?? 0;
   const drift_risk = driftLevel(driftSource);

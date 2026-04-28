@@ -12,6 +12,16 @@ import { RewardMoment } from '@/components/RewardMoment';
 import { Nav } from '@/components/Nav';
 import { PlanBuilder } from '@/components/PlanBuilder';
 import { useToast } from '@/components/ToastProvider';
+import { DailyHeader } from '@/components/daily/DailyHeader';
+import { DeskBotStatusCard } from '@/components/daily/DeskBotStatusCard';
+import { DailyGoalIntake } from '@/components/daily/DailyGoalIntake';
+import { DailyDebriefCard } from '@/components/daily/DailyDebriefCard';
+import { DailyPlanPreview } from '@/components/daily/DailyPlanPreview';
+import { TodayMissionQueue } from '@/components/daily/TodayMissionQueue';
+import { MissionCard } from '@/components/daily/MissionCard';
+import { CurrentMissionPanel } from '@/components/daily/CurrentMissionPanel';
+import { NextMovePanel } from '@/components/daily/NextMovePanel';
+import { DailyTimeline } from '@/components/daily/DailyTimeline';
 import { addRecentActivity } from '@/lib/activity';
 import { trackProductEvent } from '@/lib/productEvents';
 import { getDailyStorageKey, getReportsStorageKey, getUserProgressionStorageKey } from '@/lib/storage';
@@ -1230,47 +1240,38 @@ Money: ${debrief.money_score}/100
     <main>
       <Nav />
       <section className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6">
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="badge mb-2">Today&apos;s execution cockpit</p>
-            <h1 className="text-3xl font-black">Daily Command Center</h1>
-            <p className="mt-1 text-sm text-slate-400">{state.date} · Status: {state.status}</p>
-            <p className="mt-1 text-xs text-slate-500">Streak: {progression.current_streak || dailyStreak} days · Completed today: {completedToday} · Focus minutes: {focusMinutesToday}</p>
-            <p className="mt-1 text-xs text-slate-500" title="Lifetime XP is never reset when you reset the day.">Today XP: +{state.xp_today || 0} · Total XP: {progression.total_xp} · Level: {progression.level} Operator</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="badge">AI: {aiMode === 'openai' ? 'OpenAI' : 'Mock'}</span>
-            <span className="badge">Sync: {syncLabel}</span>
-            {betaAdmin && <span className="badge">Beta Admin</span>}
-            <span className="badge">Saved: {new Date(state.last_saved_at || nowIso()).toLocaleTimeString()}</span>
-            <Link
-              href="/settings/robot"
-              className={`badge cursor-pointer border transition hover:border-amber-400/45 ${
-                deskBotConfigured && deskBotMeta?.online
-                  ? 'border-emerald-500/40 text-emerald-200'
-                  : deskBotConfigured
-                    ? 'border-slate-600 text-slate-400'
-                    : 'border-slate-700 text-slate-500'
-              }`}
-              title="DeskBot · Atom S3R status"
-            >
-              {!deskBotConfigured ? (
-                <>DeskBot · Link key in Settings</>
-              ) : (
-                <>
-                  DeskBot {deskBotMeta?.online ? 'Online' : 'Offline'} · Last seen {secondsAgoLabel(deskBotMeta?.last_heartbeat_at)}
-                  {deskBotState?.mission
-                    ? ` · ${deskBotState.mission.length > 36 ? `${deskBotState.mission.slice(0, 36)}…` : deskBotState.mission}`
-                    : ''}
-                  <span className="sr-only">{deskBotUiTick}</span>
-                </>
-              )}
-            </Link>
-            <button className="btn-secondary btn-sm" onClick={safeAction('Close day', () => setShowCloseDayModal(true))}>Close day</button>
-            <button className="btn-ghost btn-sm" onClick={safeAction('Plan today', openPlanModal)}>Plan today</button>
-            <button className="btn-ghost btn-sm" onClick={() => setShowResetConfirm(true)}>Reset day</button>
-          </div>
-        </div>
+        <DailyHeader
+          date={state.date}
+          status={state.status}
+          streak={progression.current_streak || dailyStreak}
+          completedToday={completedToday}
+          focusMinutesToday={focusMinutesToday}
+          xpToday={state.xp_today || 0}
+          totalXp={progression.total_xp}
+          level={progression.level}
+          aiMode={aiMode}
+          syncLabel={syncLabel}
+          betaAdmin={betaAdmin}
+          savedAtLabel={new Date(state.last_saved_at || nowIso()).toLocaleTimeString()}
+          deskBotBadgeClass={
+            deskBotConfigured && deskBotMeta?.online
+              ? 'border-emerald-500/40 text-emerald-200'
+              : deskBotConfigured
+                ? 'border-slate-600 text-slate-400'
+                : 'border-slate-700 text-slate-500'
+          }
+          deskBotBadgeText={
+            !deskBotConfigured
+              ? 'DeskBot · Link key in Settings'
+              : `DeskBot ${deskBotMeta?.online ? 'Online' : 'Offline'} · Last seen ${secondsAgoLabel(deskBotMeta?.last_heartbeat_at)}${
+                  deskBotState?.mission ? ` · ${deskBotState.mission.length > 36 ? `${deskBotState.mission.slice(0, 36)}…` : deskBotState.mission}` : ''
+                }`
+          }
+          deskBotUiTick={deskBotUiTick}
+          onCloseDay={safeAction('Close day', () => setShowCloseDayModal(true))}
+          onPlanToday={safeAction('Plan today', openPlanModal)}
+          onResetDay={() => setShowResetConfirm(true)}
+        />
 
         <div className="mb-4 rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-sm text-slate-300">
           {state.status === 'planning' && 'Plan today\'s outcomes.'}
@@ -1278,35 +1279,24 @@ Money: ${debrief.money_score}/100
           {state.status === 'complete' && 'Day closed. Debrief saved.'}
           {state.status === 'blocked' && 'Blocker detected. Resolve before continuing.'}
         </div>
-        <Link
-          href="/settings/robot"
+        <DeskBotStatusCard
           className={`mb-4 block rounded-xl border p-3 text-xs transition ${
             deskBotConfigured && deskBotMeta?.online
               ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-100'
               : 'border-slate-700 bg-slate-950/40 text-slate-300'
           }`}
-        >
-          <p className="font-semibold">
-            {deskBotConfigured
+          headline={
+            deskBotConfigured
               ? deskBotMeta?.online
                 ? 'DeskBot showing current mission.'
                 : `DeskBot offline. Last seen ${secondsAgoLabel(deskBotMeta?.last_heartbeat_at)}.`
-              : 'DeskBot not configured. Add robot key in Settings.'}
-          </p>
-          {!!deskBotState?.mission && <p className="mt-1 text-slate-300">Mission: {deskBotState.mission}</p>}
-          {!!deskBotState?.next_move && <p className="mt-1 text-slate-400">Next: {deskBotState.next_move}</p>}
-          <p className="mt-1 text-slate-400">
-            DeskBot State:{' '}
-            {deskBotSyncStatus === 'synced' && 'Synced to current mission'}
-            {deskBotSyncStatus === 'waiting' && 'Waiting for next poll'}
-            {deskBotSyncStatus === 'fallback' && 'Fallback/no mission'}
-            {deskBotSyncStatus === 'error' && 'Sync error'}
-          </p>
-          {deskBotSyncStatus === 'fallback' && (
-            <p className="mt-1 text-amber-300">Robot API cannot see the active Daily mission yet.</p>
-          )}
-          <p className="mt-1 text-slate-500">{deskBotState?.button_hint || 'Press = check in'}</p>
-        </Link>
+              : 'DeskBot not configured. Add robot key in Settings.'
+          }
+          mission={deskBotState?.mission}
+          nextMove={deskBotState?.next_move}
+          syncStatus={deskBotSyncStatus}
+          hint={deskBotState?.button_hint}
+        />
 
         <div className="mb-4 flex flex-wrap gap-2 lg:hidden">
           {(['outcomes', 'focus', 'coach', 'timeline', 'report'] as DailyTab[]).map((tab) => (
@@ -1326,23 +1316,13 @@ Money: ${debrief.money_score}/100
             level={progression.level || 1}
           />
         </div>
-        {!!state.debrief && (
-          <div className="mb-4 card p-4">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Daily Debrief Saved</h2>
-            <p className="mt-1 text-sm text-slate-300">{state.debrief.summary}</p>
-            {!!state.debrief.original_goals && <p className="text-sm text-slate-300"><span className="text-slate-500">Original goals:</span> {state.debrief.original_goals}</p>}
-            <p className="text-sm text-slate-300"><span className="text-slate-500">Biggest win:</span> {state.debrief.biggest_win}</p>
-            <p className="text-sm text-slate-300"><span className="text-slate-500">Lesson:</span> {state.debrief.lesson_learned}</p>
-            <p className="text-sm text-slate-300"><span className="text-slate-500">Tomorrow first move:</span> {state.debrief.tomorrow_first_move}</p>
-            <p className="text-xs text-slate-500">Execution {state.debrief.execution_score}/100 · Money {state.debrief.money_score}/100</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(debriefToMarkdown(state.debrief!))}>Copy debrief</button>
-              <button className="btn-ghost btn-sm" onClick={() => router.push(`/reports/${state.debrief?.id}`)}>View full report</button>
-              <button className="btn-ghost btn-sm" onClick={carryForward}>Plan tomorrow</button>
-              <button className="btn-ghost btn-sm" onClick={() => setShowCloseDayModal(true)}>Regenerate</button>
-            </div>
-          </div>
-        )}
+        <DailyDebriefCard
+          debrief={state.debrief}
+          onCopy={() => navigator.clipboard.writeText(debriefToMarkdown(state.debrief!))}
+          onViewReport={() => router.push(`/reports/${state.debrief?.id}`)}
+          onPlanTomorrow={carryForward}
+          onRegenerate={() => setShowCloseDayModal(true)}
+        />
         <details className="mb-4 card p-4">
           <summary className="cursor-pointer text-sm font-bold uppercase tracking-widest text-slate-400">Daily Loop Health</summary>
           <div className="mt-2 space-y-1 text-sm text-slate-300">
@@ -1355,56 +1335,39 @@ Money: ${debrief.money_score}/100
           </div>
         </details>
 
-        <div className="mb-5 space-y-3">
-          <PlanBuilder
-            defaultMode="daily_execution"
-            goalText={dailyGoalsInput}
-            onGoalTextChange={(v) => {
-              setDailyGoalsInput(v);
-              setCustomDirection(v);
-            }}
-            showIntake={!state.outcomes.length && state.status !== 'complete'}
-            modalOpen={planBuilderModalOpen}
-            onModalOpenChange={setPlanBuilderModalOpen}
-            onAcceptDailyPlan={(outcomes, meta) => {
-              if (state.outcomes.length) {
-                setPlanReplaceBuffer({ outcomes, meta });
-                setShowReplacePrompt(true);
-                return;
-              }
-              commitDailyPlan(outcomes, meta, 'replace');
-            }}
-            onSavePlaybook={(workflow) => {
-              saveGeneratedWorkflow(workflow);
-              pushToast('Playbook saved locally.');
-            }}
-          />
-          {!state.outcomes.length && state.status !== 'complete' && (
-            <div className="flex flex-wrap gap-2">
-              <button className="btn-secondary btn-sm" type="button" onClick={carryForward}>
-                Use yesterday&apos;s carry-forward
-              </button>
-              <button
-                className="btn-ghost btn-sm"
-                type="button"
-                onClick={() => {
-                  setDailyGoalsInput('');
-                  setSelectedDayType('custom');
-                  setDayType('custom');
-                }}
-              >
-                Start from blank
-              </button>
-              <button className="btn-ghost btn-sm" type="button" onClick={openPlanModal}>
-                Plan today (modal)
-              </button>
-            </div>
-          )}
-        </div>
+        <DailyGoalIntake
+          dailyGoalsInput={dailyGoalsInput}
+          onDailyGoalsInputChange={(v) => {
+            setDailyGoalsInput(v);
+            setCustomDirection(v);
+          }}
+          showIntake={!state.outcomes.length && state.status !== 'complete'}
+          modalOpen={planBuilderModalOpen}
+          onModalOpenChange={setPlanBuilderModalOpen}
+          onAcceptDailyPlan={(outcomes, meta) => {
+            if (state.outcomes.length) {
+              setPlanReplaceBuffer({ outcomes, meta });
+              setShowReplacePrompt(true);
+              return;
+            }
+            commitDailyPlan(outcomes, meta, 'replace');
+          }}
+          onSavePlaybook={(workflow) => {
+            saveGeneratedWorkflow(workflow);
+            pushToast('Playbook saved locally.');
+          }}
+          onCarryForward={carryForward}
+          onStartBlank={() => {
+            setDailyGoalsInput('');
+            setSelectedDayType('custom');
+            setDayType('custom');
+          }}
+          onOpenPlanModal={openPlanModal}
+        />
 
-        <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr_1fr]">
+        <DailyPlanPreview>
           <div className={`${mobileTab === 'outcomes' ? 'block' : 'hidden'} lg:block`}>
-            <div className="card p-5">
+            <TodayMissionQueue>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Today&apos;s Outcomes</h2>
                 <div className="flex gap-2">
@@ -1460,18 +1423,13 @@ Money: ${debrief.money_score}/100
                     {nextUpRows.length ? (
                       <div className="space-y-2">
                         {nextUpRows.map((outcome) => (
-                          <div key={outcome.id} className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="font-semibold text-white">#{outcome.priority} {outcome.title}</p>
-                              {!!outcome.leverage_score && <span className="badge">Leverage {outcome.leverage_score}</span>}
-                            </div>
-                            <p className="text-xs text-slate-500">Proof: {outcome.proof_required}</p>
-                            <div className="mt-2 flex gap-2">
-                              <button className="btn-primary btn-sm" onClick={() => startFocus(outcome.id)}>Focus</button>
-                              <button className="btn-ghost btn-sm" onClick={() => openEditOutcome(outcome.id)}>Edit</button>
-                              <button className="btn-ghost btn-sm" onClick={() => openWorkflowDraft(outcome.id)}>Create playbook</button>
-                            </div>
-                          </div>
+                          <MissionCard
+                            key={outcome.id}
+                            outcome={outcome}
+                            onStart={() => startFocus(outcome.id)}
+                            onEdit={() => openEditOutcome(outcome.id)}
+                            onPlaybook={() => openWorkflowDraft(outcome.id)}
+                          />
                         ))}
                       </div>
                     ) : (
@@ -1541,12 +1499,11 @@ Money: ${debrief.money_score}/100
                   )}
                 </div>
               )}
-            </div>
+            </TodayMissionQueue>
           </div>
 
           <div className={`${mobileTab === 'focus' ? 'block' : 'hidden'} lg:block`}>
-            <div className="card p-5">
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Current Mission</h2>
+            <CurrentMissionPanel>
               {!activeFocus || activeFocus.status !== 'active' ? (
                 <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
                   <p className="font-semibold text-white">No focus block running</p>
@@ -1591,12 +1548,11 @@ Money: ${debrief.money_score}/100
                   </div>
                 </div>
               )}
-            </div>
+            </CurrentMissionPanel>
           </div>
 
           <div className={`${mobileTab === 'coach' ? 'block' : 'hidden'} lg:block`}>
-            <div className="card flex h-[520px] sm:h-[620px] flex-col p-5">
-              <h2 className="mb-1 text-sm font-bold uppercase tracking-widest text-slate-400">Next Move</h2>
+            <NextMovePanel>
               <p className="mb-2 text-xs text-slate-500">TaskPilot chooses the next concrete action.</p>
               <div className="mb-2 rounded-lg border border-slate-700 bg-slate-950/60 p-2 text-xs text-slate-300">
                 Suggested now: {localRecommendation.move}
@@ -1653,36 +1609,19 @@ Money: ${debrief.money_score}/100
                 <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask if blocked or unclear..." onKeyDown={(e) => e.key === 'Enter' && void sendCoachMessage()} />
                 <button className="btn-primary" onClick={safeAction('Send coach message', () => void sendCoachMessage())}>Send</button>
               </div>
-            </div>
+            </NextMovePanel>
             
           </div>
-        </div>
+        </DailyPlanPreview>
 
         <div className={`${mobileTab === 'timeline' ? 'block' : 'hidden'} mt-5 lg:block`}>
-          <details className="card p-5" open={mobileTab === 'timeline' && state.status === 'complete'}>
-            <summary className="cursor-pointer text-sm font-bold uppercase tracking-widest text-slate-400">Progress Timeline</summary>
-            <h2 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Progress Timeline</h2>
-            <div className="space-y-1 text-sm text-slate-300">
-              {shownEvents.map((event) => (
-                <p key={event.id}>
-                  {new Date(event.created_at).toLocaleTimeString()} · {
-                    event.type === 'generated_top3' ? 'Plan created'
-                      : event.type === 'created_outcome' ? 'Outcome added'
-                      : event.type === 'started_focus' ? 'Focus started'
-                      : event.type === 'completed_action' && event.content.includes('Reward earned') ? 'Reward earned'
-                      : event.type === 'completed_action' ? 'Focus action completed'
-                      : event.type === 'proof_added' ? 'Evidence logged'
-                      : event.type === 'completed_outcome' ? 'Outcome completed'
-                      : event.type === 'report_generated' ? 'Day closed'
-                      : event.type === 'blocked' ? 'Blocked'
-                      : 'Progress logged'
-                  } · {event.content}
-                </p>
-              ))}
-              {!state.events.length && <p className="text-slate-500">No progress logged yet. Start a focus block or mark an outcome complete.</p>}
-            </div>
-            {state.events.length > 10 && <button className="btn-ghost btn-sm mt-2" onClick={() => setShowAllEvents((prev) => !prev)}>{showAllEvents ? 'View latest 10' : 'View all'}</button>}
-          </details>
+          <DailyTimeline
+            open={mobileTab === 'timeline' && state.status === 'complete'}
+            shownEvents={shownEvents}
+            hasMore={state.events.length > 10}
+            showAllEvents={showAllEvents}
+            onToggleAll={() => setShowAllEvents((prev) => !prev)}
+          />
         </div>
 
         <div className={`${mobileTab === 'report' ? 'block' : 'hidden'} mt-5 lg:block`}>

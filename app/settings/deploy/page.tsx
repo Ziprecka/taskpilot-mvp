@@ -109,7 +109,7 @@ export default function DeployPage() {
             <p>OpenAI badge says OpenAI</p>
             <p>Supabase sync works</p>
             <p>Workflow generator works</p>
-            <p>Daily Mode loads</p>
+            <p>Today loads</p>
             <p>Robot API health works</p>
             <p>Mobile layout usable</p>
             <p>Add to Home Screen works</p>

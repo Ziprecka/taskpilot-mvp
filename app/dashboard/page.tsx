@@ -181,7 +181,7 @@ export default function DashboardPage() {
             <div className="flex flex-wrap gap-2">
               <Link href="/daily" className="btn-primary">Open Today</Link>
               <Link href={latestSession ? `/session/${latestSession.workflow_id || 'taskpilot-mvp-build'}?sid=${encodeURIComponent(latestSession.id)}` : '/session/taskpilot-mvp-build'} className="btn-secondary">Continue latest</Link>
-              <Link href="/workflows/generate" className="btn-secondary">Generate playbook</Link>
+              <Link href="/workflows/generate" className="btn-secondary">Create Playbook</Link>
               <Link href="/workflows/saved" className="btn-secondary">Browse playbooks</Link>
               <button className="btn-ghost" onClick={() => setShowTools(true)}>Tools</button>
             </div>
@@ -225,7 +225,7 @@ export default function DashboardPage() {
             <p className="mt-1 text-xl font-bold">Status: {dailyState?.status || 'planning'}</p>
             <p className="mt-1 text-xs text-slate-500">Outcomes done: {dailyState?.outcomes?.filter((o: any) => o.status === 'done')?.length || 0}/{dailyState?.outcomes?.length || 0} · Focus: {dailyState?.active_focus_block?.actual_minutes || 0}m · Proof: {dailyState?.proof_items?.length || 0} · XP +{dailyState?.xp_today || 0}</p>
             <p className="mt-1 text-xs text-slate-500">Convert outcomes into focus blocks and execution proof.</p>
-            <Link href="/daily" className="btn-secondary btn-sm mt-3 inline-flex">Open Daily Mode</Link>
+            <Link href="/daily" className="btn-secondary btn-sm mt-3 inline-flex">Open Today</Link>
           </div>
           <div className="card p-5">
             <p className="text-sm text-slate-400">System readiness</p>
@@ -328,7 +328,7 @@ export default function DashboardPage() {
             />
           ))}
         </div>
-        <p className="mt-6 text-xs text-slate-500">TaskPilot version {TASKPILOT_VERSION}</p>
+        <p className="mt-6 text-xs text-slate-500">TaskPilot beta · build {TASKPILOT_VERSION}</p>
       </section>
 
       {showTools && (

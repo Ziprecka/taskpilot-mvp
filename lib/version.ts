@@ -1,6 +1,6 @@
-export const TASKPILOT_VERSION = '0.2.0-beta';
+export const TASKPILOT_VERSION = '0.3.0-beta';
 export const TASKPILOT_APP_NAME = 'TaskPilot';
-export const TASKPILOT_TAGLINE = 'GPS for getting things done.';
+export const TASKPILOT_TAGLINE = 'Finish the day with proof.';
 
 export function getTaskPilotVersionInfo() {
   return {

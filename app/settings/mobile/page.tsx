@@ -57,7 +57,7 @@ export default function MobileSetupPage() {
             <p>Dashboard cards stack correctly</p>
             <p>Session page is readable</p>
             <p>AI chat input is easy to tap</p>
-            <p>Daily Mode controls are reachable</p>
+            <p>Today controls are reachable</p>
             <p>Workflow generator form is usable</p>
             <p>App opens in standalone mode</p>
           </div>

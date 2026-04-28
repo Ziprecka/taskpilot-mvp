@@ -529,7 +529,7 @@ export default function SessionPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/daily" className="btn-ghost">Daily Mode</Link>
+            <Link href="/daily" className="btn-ghost">Today</Link>
             <button className="btn-secondary" onClick={addNextStepToToday}>Add next step to Today</button>
             <ModeSelector value={session.mode} onChange={(mode) => setSession((prev) => ({ ...prev, mode }))} />
           </div>
