@@ -82,7 +82,7 @@ export default function SavedWorkflowsPage() {
   const [pinned, setPinned] = useState<string[]>([]);
   const [archived, setArchived] = useState<string[]>([]);
   const [hidden, setHidden] = useState<string[]>([]);
-  const [view, setView] = useState<'default' | 'pinned' | 'mine' | 'starter' | 'generated' | 'archived' | 'internal'>('default');
+  const [view, setView] = useState<'pinned' | 'mine' | 'starter' | 'generated' | 'archived' | 'internal'>('pinned');
 
   useEffect(() => {
     setGenerated(loadGeneratedWorkflows());
@@ -169,7 +169,7 @@ export default function SavedWorkflowsPage() {
     .filter((row) => (view === 'mine' ? row.sourceCategory === 'generated' || row.sourceCategory === 'user-created' : true))
     .filter((row) => (view === 'starter' ? row.sourceCategory === 'starter' : true))
     .filter((row) => (view === 'generated' ? row.sourceCategory === 'generated' : true))
-    .filter((row) => (view === 'internal' ? row.sourceCategory === 'internal/example' : view === 'default' ? row.sourceCategory !== 'internal/example' : true))
+    .filter((row) => (view === 'internal' ? row.sourceCategory === 'internal/example' : true))
     .filter((row) => (category === 'all' ? true : row.category === category))
     .filter((row) => `${row.name} ${row.category}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
@@ -207,26 +207,28 @@ export default function SavedWorkflowsPage() {
           </select>
         </div>
         <div className="mb-4 flex flex-wrap gap-2">
-          <button className="btn-secondary btn-sm" onClick={() => setView('default')}>Default</button>
           <button className="btn-ghost btn-sm" onClick={() => setView('pinned')}>Pinned</button>
           <button className="btn-ghost btn-sm" onClick={() => setView('mine')}>Mine</button>
           <button className="btn-ghost btn-sm" onClick={() => setView('starter')}>Starter</button>
-          <button className="btn-ghost btn-sm" onClick={() => setView('generated')}>Generated</button>
-          <button className="btn-ghost btn-sm" onClick={() => setView('archived')}>Archived</button>
-          <button className="btn-ghost btn-sm" onClick={() => setView('internal')}>Internal examples</button>
+          <details>
+            <summary className="btn-ghost btn-sm cursor-pointer">More</summary>
+            <div className="mt-2 flex flex-wrap gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-2">
+              <button className="btn-ghost btn-sm" onClick={() => setView('generated')}>Generated</button>
+              <button className="btn-ghost btn-sm" onClick={() => setView('archived')}>Archived</button>
+              <button className="btn-ghost btn-sm" onClick={() => setView('internal')}>Internal</button>
+            </div>
+          </details>
         </div>
         {rows.length > 10 && (
-          <div className="card mb-4 p-4">
-            <p className="text-sm text-slate-300">You have {rows.length} playbooks. Want to clean up your library?</p>
+          <div className="mb-4 rounded-lg border border-slate-700 bg-slate-950/35 p-3">
+            <p className="text-xs text-slate-300">Large library detected ({rows.length} playbooks). Clean up generated items?</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <button className="btn-secondary btn-sm" onClick={() => setView('pinned')}>Show only pinned</button>
               <button className="btn-secondary btn-sm" onClick={() => {
                 const unusedGenerated = rows.filter((row) => row.sourceCategory === 'generated' && !row.lastUsed).map((row) => row.workflow.id);
                 const next = Array.from(new Set([...archived, ...unusedGenerated]));
                 setArchived(next);
                 localStorage.setItem('taskpilot-workflow-archived', JSON.stringify(next));
               }}>Archive unused generated playbooks</button>
-              <button className="btn-ghost btn-sm" onClick={() => setView('archived')}>Manage library</button>
             </div>
           </div>
         )}
@@ -234,7 +236,7 @@ export default function SavedWorkflowsPage() {
         {!filtered.length ? (
           <div className="card p-6 text-center text-slate-300">
             <p className="mb-3">Generate your first playbook.</p>
-            <Link href="/workflows/generate" className="btn-primary">Open playbook generator</Link>
+            <Link href="/workflows/generate" className="btn-primary">Create Playbook</Link>
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -246,23 +248,19 @@ export default function SavedWorkflowsPage() {
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Link className="btn-primary text-xs" href={`/session/${row.workflow.id}`}>Start</Link>
                   <button className="btn-secondary text-xs" onClick={() => { toTodayFromWorkflow(row.workflow); window.location.href = '/daily'; }}>Run in Today</button>
-                  <button className="btn-ghost btn-sm" onClick={() => setPinned(togglePinnedWorkflow(row.workflow.id))}>{pinned.includes(row.workflow.id) ? 'Unpin' : 'Pin'}</button>
-                  <button className="btn-ghost btn-sm" onClick={() => {
-                    const next = Array.from(new Set([...archived, row.workflow.id]));
-                    setArchived(next);
-                    localStorage.setItem('taskpilot-workflow-archived', JSON.stringify(next));
-                  }}>Archive</button>
                   <details>
-                    <summary className="btn-ghost btn-sm cursor-pointer">Manage</summary>
+                    <summary className="btn-ghost btn-sm cursor-pointer">More</summary>
                     <div className="mt-2 flex flex-wrap gap-2 rounded-lg border border-slate-700 bg-slate-950/60 p-2">
-                      <Link className="btn-ghost btn-sm" href="/workflows/generate">Edit</Link>
-                      <button className="btn-ghost btn-sm" onClick={() => setGenerated((prev) => [saveGeneratedWorkflow({ ...row.workflow, id: `${row.workflow.id}-copy-${Date.now()}` })[0], ...prev])}>Duplicate</button>
-                      {row.state === 'archived' && <button className="btn-ghost btn-sm" onClick={() => {
-                        const next = archived.filter((id) => id !== row.workflow.id);
+                      <button className="btn-ghost btn-sm" onClick={() => setPinned(togglePinnedWorkflow(row.workflow.id))}>{pinned.includes(row.workflow.id) ? 'Unpin' : 'Pin'}</button>
+                      <button className="btn-ghost btn-sm" onClick={() => {
+                        const next = Array.from(new Set([...archived, row.workflow.id]));
                         setArchived(next);
                         localStorage.setItem('taskpilot-workflow-archived', JSON.stringify(next));
-                      }}>Restore</button>}
-                      <button className="btn-ghost btn-sm" onClick={() => navigator.clipboard.writeText(JSON.stringify(row.workflow, null, 2))}>Export</button>
+                      }}>Archive</button>
+                      <Link className="btn-ghost btn-sm" href="/workflows/generate">Edit</Link>
+                      <button className="btn-ghost btn-sm" onClick={() => {
+                        downloadFile(`${row.workflow.id}.json`, JSON.stringify(row.workflow, null, 2), 'application/json');
+                      }}>Export</button>
                       <button className="btn-ghost btn-sm" onClick={() => {
                         const next = Array.from(new Set([...hidden, row.workflow.id]));
                         setHidden(next);

@@ -90,6 +90,7 @@ export default function ReportsPage() {
   });
 
   const filtered = useMemo(() => items.filter((item) => (filter === 'all' || item.type === filter) && item.title.toLowerCase().includes(query.toLowerCase())), [items, filter, query]);
+  const latestDebrief = useMemo(() => items.find((i) => i.type === 'daily_debrief') || items[0] || null, [items]);
   const weekly = useMemo(() => {
     const daily = items.filter((i) => i.type === 'daily');
     return {
@@ -108,7 +109,7 @@ export default function ReportsPage() {
         <p className="badge mb-2">Reports</p>
         <h1 className="text-3xl font-black">Reports History</h1>
         <p className="mb-4 text-slate-400">Daily debriefs, workflow reports, lessons, and evidence summaries.</p>
-        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
           <div className="card p-5">
             <div className="mb-3 flex flex-wrap gap-2">
               <input className="input max-w-xs" placeholder="Search reports..." value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -128,26 +129,34 @@ export default function ReportsPage() {
                   {item.type === 'daily_debrief' && (
                     <p className="text-xs text-slate-500">Execution {item.executionScore}/100 · Money {item.moneyScore}/100 · Completed {item.completedCount} · Proof {item.proofCount}</p>
                   )}
-                  <div className="mt-2">
-                    <a className="btn-ghost btn-sm inline-flex" href={`/reports/${item.id}`}>Open</a>
-                  </div>
+                  <div className="mt-2"><a className="btn-ghost btn-sm inline-flex" href={`/reports/${item.id}`}>Open</a></div>
                 </button>
               ))}
-              {!filtered.length && <p className="text-sm text-slate-500">No reports yet.</p>}
+              {!filtered.length && <p className="text-sm text-slate-500">No reports yet. Close a day to create your first debrief.</p>}
             </div>
           </div>
           <div className="card p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black">Weekly review (beta)</h2>
-              <span className="badge">Pro feature</span>
-            </div>
-            <p className="mt-2 text-sm text-slate-300">Completed outcomes this week: {weekly.completedOutcomes}</p>
-            <p className="text-sm text-slate-300">Focus minutes: {weekly.focusMinutes}</p>
-            <p className="text-sm text-slate-300">Reports generated: {weekly.reports}</p>
-            <p className="text-sm text-slate-300">Common blockers: {weekly.blockers}</p>
-            <p className="text-sm text-slate-300">Best day: {weekly.bestDay}</p>
-            <p className="mt-2 text-xs text-slate-500">Next week focus recommendation: prioritize one money move before noon daily.</p>
-            <a className="btn-ghost btn-sm mt-3 inline-flex" href="/pricing">Join Pro early access</a>
+            <h2 className="text-xl font-black">Last closed day</h2>
+            {latestDebrief ? (
+              <>
+                <p className="mt-2 text-sm text-slate-300">{latestDebrief.title}</p>
+                <p className="text-xs text-slate-500">{latestDebrief.summary}</p>
+                <div className="mt-2 text-xs text-slate-500">
+                  {latestDebrief.executionScore !== undefined && <p>Execution: {latestDebrief.executionScore}/100</p>}
+                  {latestDebrief.proofCount !== undefined && <p>Proof logged: {latestDebrief.proofCount}</p>}
+                </div>
+                <a className="btn-primary btn-sm mt-3 inline-flex" href={`/reports/${latestDebrief.id}`}>Open latest debrief</a>
+              </>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">No debrief yet.</p>
+            )}
+            <details className="mt-4">
+              <summary className="cursor-pointer text-xs text-slate-400">Weekly review (beta)</summary>
+              <p className="mt-2 text-sm text-slate-300">Completed outcomes this week: {weekly.completedOutcomes}</p>
+              <p className="text-sm text-slate-300">Focus minutes: {weekly.focusMinutes}</p>
+              <p className="text-sm text-slate-300">Reports generated: {weekly.reports}</p>
+              <a className="btn-ghost btn-sm mt-3 inline-flex" href="/pricing">Join Pro early access</a>
+            </details>
           </div>
         </div>
 

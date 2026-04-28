@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DailyLoopProgress } from '@/components/DailyLoopProgress';
 import { DailyScorecard } from '@/components/DailyScorecard';
-import { DailyCoachCard } from '@/components/DailyCoachCard';
 import { LearningCard } from '@/components/LearningCard';
 import { ProofModal } from '@/components/ProofModal';
 import { RewardMoment } from '@/components/RewardMoment';
@@ -18,7 +17,6 @@ import { DailyGoalIntake } from '@/components/daily/DailyGoalIntake';
 import { DailyDebriefCard } from '@/components/daily/DailyDebriefCard';
 import { DailyPlanPreview } from '@/components/daily/DailyPlanPreview';
 import { TodayMissionQueue } from '@/components/daily/TodayMissionQueue';
-import { MissionCard } from '@/components/daily/MissionCard';
 import { CurrentMissionPanel } from '@/components/daily/CurrentMissionPanel';
 import { NextMovePanel } from '@/components/daily/NextMovePanel';
 import { DailyTimeline } from '@/components/daily/DailyTimeline';
@@ -153,10 +151,10 @@ export default function DailyPage() {
   const [showCompleteWithoutProof, setShowCompleteWithoutProof] = useState<string | null>(null);
   const [showCloseDayModal, setShowCloseDayModal] = useState(false);
   const [showCloseWarning, setShowCloseWarning] = useState(false);
-  const [copilotMode, setCopilotMode] = useState<'coach' | 'action'>('action');
+  const [copilotMode, setCopilotMode] = useState<'action' | 'draft' | 'blocked'>('action');
+  const [copilotArtifact, setCopilotArtifact] = useState('');
   const [showCoachHistory, setShowCoachHistory] = useState(false);
   const [showCompletedExpanded, setShowCompletedExpanded] = useState(false);
-  const [showAiDetails, setShowAiDetails] = useState(false);
   const [isCoachLoading, setIsCoachLoading] = useState(false);
   const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
   const [betaAdmin, setBetaAdmin] = useState(false);
@@ -927,15 +925,6 @@ export default function DailyPage() {
     }
   }
 
-  function runCoachAction(action: 'start_focus' | 'log_proof' | 'mark_done' | 'create_workflow' | 'close_day' | 'none' | 'ask_clarifying_question') {
-    if (action === 'start_focus') return pickBestOutcome();
-    if (action === 'log_proof') return openProofModal(state.active_outcome_id);
-    if (action === 'mark_done' && state.active_outcome_id) return completeOutcome(state.active_outcome_id);
-    if (action === 'create_workflow' && state.active_outcome_id) return openWorkflowDraft(state.active_outcome_id);
-    if (action === 'close_day') return handleCloseDay('ai');
-    if (action === 'ask_clarifying_question') return void sendCoachMessage('Ask one clarifying question before recommending next move.');
-  }
-
   function debriefToMarkdown(debrief: DailyDebrief) {
     return `# Daily Debrief
 
@@ -1226,6 +1215,38 @@ Money: ${debrief.money_score}/100
       avoid: 'Do not start random tasks.'
     };
   }, [state, dailyGoalsInput]);
+  const activeMission =
+    state.outcomes.find((o) => o.id === state.active_focus_block?.outcome_id) ||
+    state.outcomes.find((o) => o.status === 'active') ||
+    [...state.outcomes].filter((o) => o.status === 'planned' || o.status === 'selected').sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0] ||
+    null;
+  const compactMissionRows = [...state.outcomes]
+    .filter((o) => o.status !== 'done' && o.status !== 'skipped')
+    .sort((a, b) => a.priority - b.priority)
+    .map((o) => ({
+      id: o.id,
+      label: o.short_title || o.title,
+      status: o.id === activeMission?.id ? 'Active' : o.status === 'blocked' ? 'Blocked' : o.status === 'active' ? 'Active' : 'Next',
+      hasProof: Boolean(o.proof_provided?.trim())
+    }));
+
+  function buildMissionDraft(outcome: DailyOutcome | null) {
+    if (!outcome) return 'No active mission. Plan today first.';
+    const title = outcome.title.toLowerCase();
+    if (/detail|car|route|customer|van/.test(title)) {
+      return `ACTION\nOpen your calendar and create this table now.\n\nMAKE\nCustomer | Address | Service | Arrival Window | Estimated Finish | Notes\n\nPROOF\nScreenshot the completed route/timing table.\n\nNEXT\nSend the first "on my way" message template.`;
+    }
+    if (/sales|outreach|lead|prospect/.test(title)) {
+      return `ACTION\nBuild your first 10-prospect list now.\n\nMAKE\nName | Channel | Pain Signal | Message Variant | Status\n\nPROOF\nScreenshot the sheet with 10 rows.\n\nNEXT\nSend message variant A to first 3 prospects.`;
+    }
+    if (/hardware|esp|arduino|atom|flash|firmware/.test(title)) {
+      return `ACTION\nRun the first hardware verification step.\n\nMAKE\nChecklist: detect port -> flash test sketch -> read serial output.\n\nPROOF\nScreenshot of serial output + detected port.\n\nNEXT\nRun API heartbeat test with robot key.`;
+    }
+    if (/build|feature|deploy|component|bug/.test(title)) {
+      return `ACTION\nOpen the target file and implement the smallest shippable diff.\n\nMAKE\nChecklist: file path -> change -> npm run build -> screenshot.\n\nPROOF\nBuild passes + screenshot of result.\n\nNEXT\nWrite 3-line release note.`;
+    }
+    return `ACTION\n${outcome.first_action || 'Start the first concrete action.'}\n\nMAKE\nChecklist:\n- ${outcome.checklist?.[0] || 'Do step 1'}\n- ${outcome.checklist?.[1] || 'Do step 2'}\n- ${outcome.checklist?.[2] || 'Do step 3'}\n\nPROOF\n${outcome.proof_required || 'Log one proof item.'}\n\nNEXT\nMark complete or move to the next mission.`;
+  }
   const executionScore = Math.min(100, ((completedToday * 25) + Math.min(30, focusMinutesToday) + Math.min(20, (state.proof_count_today || 0) * 10)));
 
   function safeAction(label: string, handler?: () => void) {
@@ -1305,16 +1326,7 @@ Money: ${debrief.money_score}/100
         </div>
         <div className="mb-4 grid gap-3">
           <DailyLoopProgress currentStep={loopStep} />
-          <DailyScorecard
-            executionScore={executionScore}
-            focusMinutes={focusMinutesToday}
-            outcomesCompleted={completedToday}
-            outcomesTotal={Math.max(1, state.outcomes.length)}
-            proofLogged={state.proof_count_today || 0}
-            streak={progression.current_streak || dailyStreak}
-            xpToday={state.xp_today || 0}
-            level={progression.level || 1}
-          />
+          <DailyScorecard executionScore={executionScore} focusMinutes={focusMinutesToday} outcomesCompleted={completedToday} outcomesTotal={Math.max(1, state.outcomes.length)} proofLogged={state.proof_count_today || 0} streak={progression.current_streak || dailyStreak} xpToday={state.xp_today || 0} level={progression.level || 1} />
         </div>
         <DailyDebriefCard
           debrief={state.debrief}
@@ -1323,7 +1335,7 @@ Money: ${debrief.money_score}/100
           onPlanTomorrow={carryForward}
           onRegenerate={() => setShowCloseDayModal(true)}
         />
-        <details className="mb-4 card p-4">
+        {process.env.NODE_ENV !== 'production' && <details className="mb-4 card p-4">
           <summary className="cursor-pointer text-sm font-bold uppercase tracking-widest text-slate-400">Daily Loop Health</summary>
           <div className="mt-2 space-y-1 text-sm text-slate-300">
             <p>{state.outcomes.length > 0 ? '✓' : '○'} outcomes exist</p>
@@ -1333,7 +1345,7 @@ Money: ${debrief.money_score}/100
             <p>{Boolean(state.debrief) ? '✓' : '○'} debrief generated</p>
             <p>{Boolean(state.debrief?.tomorrow_first_move) ? '✓' : '○'} tomorrow move saved</p>
           </div>
-        </details>
+        </details>}
 
         <DailyGoalIntake
           dailyGoalsInput={dailyGoalsInput}
@@ -1365,7 +1377,7 @@ Money: ${debrief.money_score}/100
           onOpenPlanModal={openPlanModal}
         />
 
-        <DailyPlanPreview>
+        {state.status !== 'complete' && <DailyPlanPreview>
           <div className={`${mobileTab === 'outcomes' ? 'block' : 'hidden'} lg:block`}>
             <TodayMissionQueue>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1389,52 +1401,18 @@ Money: ${debrief.money_score}/100
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500">Current Mission</h3>
-                    {activeOutcomeRows.length ? activeOutcomeRows.slice(0, 1).map((outcome) => (
-                      <div key={outcome.id} className="rounded-xl border border-amber-400 bg-amber-400/10 p-3">
-                        <p className="font-semibold text-white">#{outcome.priority} {outcome.title}</p>
-                        <p className="text-xs text-slate-400">First action: {outcome.first_action || 'Take first action now.'}</p>
-                        <p className="text-xs text-slate-500">Proof: {outcome.proof_required || 'Log proof in app'}</p>
-                        <p className="text-xs text-slate-500">Done when: {outcome.done_when || 'Checklist complete and proof logged.'}</p>
-                        {!!outcome.checklist?.length && (
-                          <ul className="mt-2 list-inside list-disc text-xs text-slate-300">
-                            {outcome.checklist.slice(0, 3).map((item) => (
-                              <li key={item}>{item}</li>
-                            ))}
-                          </ul>
-                        )}
-                        <div className="mt-2 flex gap-2">
-                          <button className="btn-primary btn-sm" onClick={() => openProofModal(outcome.id)}>Log proof</button>
-                          <button className="btn-secondary btn-sm" onClick={() => completeOutcome(outcome.id)}>Complete</button>
-                          <button className="btn-secondary btn-sm" onClick={() => openBlockedModal(outcome.id)}>Blocked</button>
+                    <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500">Mission Queue</h3>
+                    <div className="space-y-1">
+                      {compactMissionRows.map((row, idx) => (
+                        <div key={row.id} className={`flex items-center justify-between rounded-lg border px-2 py-2 text-sm ${row.status === 'Active' ? 'border-amber-400 bg-amber-400/10' : row.status === 'Blocked' ? 'border-amber-600/60 bg-amber-500/10' : 'border-slate-700 bg-slate-950/40'}`}>
+                          <p className="truncate pr-2 text-slate-200">{idx + 1}. {row.label}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400">{row.status}{row.hasProof ? ' · Proof' : ''}</span>
+                            {row.status !== 'Active' && <button className="btn-ghost btn-sm" onClick={() => startFocus(row.id)}>Start</button>}
+                          </div>
                         </div>
-                        <div className="mt-1 flex gap-3 text-xs">
-                          <button className="text-slate-400 hover:text-slate-200" onClick={() => updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null }))}>Pause</button>
-                          <button className="text-slate-400 hover:text-slate-200" onClick={() => openWorkflowDraft(outcome.id)}>Create Playbook</button>
-                        </div>
-                      </div>
-                    )) : (
-                      <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-3 text-sm text-slate-400">No active mission. Start one from Next Up.</div>
-                    )}
-                  </div>
-
-                  <div>
-                    <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500">Next Up</h3>
-                    {nextUpRows.length ? (
-                      <div className="space-y-2">
-                        {nextUpRows.map((outcome) => (
-                          <MissionCard
-                            key={outcome.id}
-                            outcome={outcome}
-                            onStart={() => startFocus(outcome.id)}
-                            onEdit={() => openEditOutcome(outcome.id)}
-                            onPlaybook={() => openWorkflowDraft(outcome.id)}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-3 text-sm text-slate-400">All planned outcomes are complete. Close the day or add another outcome.</div>
-                    )}
+                      ))}
+                    </div>
                   </div>
 
                   {!!blockedRows.length && (
@@ -1474,7 +1452,7 @@ Money: ${debrief.money_score}/100
                               <p className="text-xs text-emerald-200">Completed {outcome.completed_at ? new Date(outcome.completed_at).toLocaleTimeString() : ''}</p>
                               <div className="mt-1 flex flex-wrap gap-2">
                                 <button className="btn-ghost btn-sm" onClick={() => openProofModal(outcome.id)}>View proof</button>
-                                <button className="btn-ghost btn-sm" onClick={() => openWorkflowDraft(outcome.id)}>Create playbook</button>
+                                <button className="btn-ghost btn-sm" onClick={() => openWorkflowDraft(outcome.id)}>Create Playbook</button>
                                 <button className="btn-ghost btn-sm" onClick={() => openLessonModal(outcome.id)}>Save lesson</button>
                                 {queuedPlaybookByOutcome[outcome.id] && <span className="badge">Already created from this outcome</span>}
                               </div>
@@ -1504,47 +1482,36 @@ Money: ${debrief.money_score}/100
 
           <div className={`${mobileTab === 'focus' ? 'block' : 'hidden'} lg:block`}>
             <CurrentMissionPanel>
-              {!activeFocus || activeFocus.status !== 'active' ? (
+              {!activeMission ? (
                 <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
-                  <p className="font-semibold text-white">No focus block running</p>
-                  <p className="mt-1 text-sm text-slate-400">Pick one outcome to work now.</p>
-                  <p className="mt-2 text-xs text-slate-500">Recommended: {recommendedOutcome?.title || 'No recommended outcome yet.'}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Pick best next move', pickBestOutcome)}>Pick best next move</button>
-                    <button className="btn-primary btn-sm" onClick={safeAction('Start focus block', () => recommendedOutcome && startFocus(recommendedOutcome.id))}>Start focus block</button>
-                  </div>
+                  <p className="font-semibold text-white">No mission selected</p>
+                  <p className="mt-1 text-sm text-slate-400">Plan today to create a mission queue.</p>
+                  <button className="btn-primary btn-sm mt-3" onClick={safeAction('Plan today', openPlanModal)}>Plan Today</button>
                 </div>
               ) : (
                 <div className="space-y-2 text-sm text-slate-300">
-                  <p><span className="text-slate-500">Outcome:</span> {activeFocus.title.slice(0, 80)}{activeFocus.title.length > 80 ? '...' : ''}</p>
-                  <p><span className="text-slate-500">First action:</span> {(activeFocus.current_action || '').split('.').slice(0, 1).join('.').slice(0, 140)}</p>
-                  <p><span className="text-slate-500">Proof needed:</span> {(state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.proof_required || 'Visible progress note').slice(0, 90)}</p>
-                  {!!state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.done_when && (
-                    <p><span className="text-slate-500">Done when:</span> {state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.done_when}</p>
+                  <p className="text-lg font-bold text-white">{activeMission.title}</p>
+                  <p><span className="text-slate-500">Objective:</span> {activeMission.objective || activeMission.why_it_matters}</p>
+                  <p><span className="text-slate-500">First action:</span> {(activeFocus?.current_action || activeMission.first_action || '').split('.').slice(0, 1).join('.').slice(0, 180)}</p>
+                  <p><span className="text-slate-500">Proof:</span> {(activeMission.proof_required || 'Visible progress note').slice(0, 120)}</p>
+                  {!!activeMission.done_when && (
+                    <p><span className="text-slate-500">Done when:</span> {activeMission.done_when}</p>
                   )}
-                  {!!state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.checklist?.length && (
+                  {!!activeMission.checklist?.length && (
                     <ul className="list-inside list-disc text-xs text-slate-300">
-                      {state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.checklist?.slice(0, 3).map((step) => (
+                      {activeMission.checklist?.slice(0, 3).map((step) => (
                         <li key={step}>{step}</li>
                       ))}
                     </ul>
                   )}
-                  {(activeFocus.title.length > 80 || (activeFocus.current_action || '').length > 140) && (
-                    <details className="rounded-lg border border-slate-700 bg-slate-900/40 p-2">
-                      <summary className="cursor-pointer text-xs text-slate-400">Details</summary>
-                      <p className="mt-1 text-xs text-slate-300">{activeFocus.title}</p>
-                      <p className="mt-1 text-xs text-slate-300">{activeFocus.current_action}</p>
-                    </details>
-                  )}
-                  <p><span className="text-slate-500">Elapsed:</span> {activeFocus.actual_minutes}m / {activeFocus.planned_minutes}m</p>
-                  <p><span className="text-slate-500">Drift:</span> {activeFocus.drift_score > 5 ? 'High' : 'Stable'}</p>
-                  <p><span className="text-slate-500">Checkpoint:</span> {new Date(activeFocus.last_progress_at).toLocaleTimeString()}</p>
+                  <p><span className="text-slate-500">Timer:</span> {activeFocus?.actual_minutes || 0}m / {activeFocus?.planned_minutes || activeMission.estimated_minutes || 25}m</p>
+                  <p><span className="text-slate-500">Status:</span> {activeFocus?.status === 'active' ? 'Focused' : activeMission.status}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button className="btn-primary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeFocus.outcome_id))}>Log proof</button>
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Complete', () => completeOutcome(activeFocus.outcome_id))}>Complete</button>
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(activeFocus.outcome_id))}>Blocked</button>
+                    <button className="btn-primary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeMission.id))}>Log Proof</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Complete', () => completeOutcome(activeMission.id))}>Complete</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(activeMission.id))}>Blocked</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
-                    <button className="btn-ghost btn-sm" onClick={safeAction('Create playbook', () => openWorkflowDraft(activeFocus.outcome_id))}>Create playbook</button>
+                    <button className="btn-ghost btn-sm" onClick={safeAction('Create playbook', () => openWorkflowDraft(activeMission.id))}>Create Playbook</button>
                   </div>
                 </div>
               )}
@@ -1553,42 +1520,37 @@ Money: ${debrief.money_score}/100
 
           <div className={`${mobileTab === 'coach' ? 'block' : 'hidden'} lg:block`}>
             <NextMovePanel>
-              <p className="mb-2 text-xs text-slate-500">TaskPilot chooses the next concrete action.</p>
-              <div className="mb-2 rounded-lg border border-slate-700 bg-slate-950/60 p-2 text-xs text-slate-300">
-                Suggested now: {localRecommendation.move}
+              <h2 className="mb-1 text-sm font-bold uppercase tracking-widest text-slate-400">Copilot</h2>
+              <p className="mb-2 text-xs text-slate-500">Helps you finish the current mission.</p>
+              <div className="mb-2 flex flex-wrap gap-2">
+                <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('action')}>Action</button>
+                <button className={`btn-secondary btn-sm ${copilotMode === 'draft' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('draft')}>Draft</button>
+                <button className={`btn-secondary btn-sm ${copilotMode === 'blocked' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('blocked')}>Blocked</button>
               </div>
-              <div className="mb-3">
-                {isCoachLoading ? (
-                  <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-3">
-                    <div className="mb-2 h-4 w-3/5 animate-pulse rounded bg-slate-800" />
-                    <div className="mb-2 h-3 w-2/3 animate-pulse rounded bg-slate-800" />
-                    <div className="h-3 w-1/2 animate-pulse rounded bg-slate-800" />
-                  </div>
-                ) : (
-                  <div>
-                    <DailyCoachCard ai={coachRecommendation || {
-                      direct_answer: 'Using local next move.',
-                      next_action: localRecommendation.do,
-                      proof_needed: localRecommendation.proof,
-                      suggested_focus_minutes: localRecommendation.timebox,
-                      drift_warning: '',
-                      priority_reason: 'Local recommendation',
-                      next_move: localRecommendation.move,
-                      go_here: localRecommendation.where,
-                      write_make_do: localRecommendation.do,
-                      avoid: localRecommendation.avoid
-                    }} onAction={runCoachAction} />
-                    <button className="btn-ghost btn-sm mt-2" onClick={() => setShowAiDetails((p) => !p)}>{showAiDetails ? 'Hide details' : 'Details'}</button>
-                  </div>
-                )}
+              <div className="mb-2 flex flex-wrap gap-2">
+                <button className="btn-primary btn-sm" onClick={() => {
+                  setCopilotMode('action');
+                  setCopilotArtifact(`ACTION\n${localRecommendation.do}\n\nPROOF\n${localRecommendation.proof}\n\nNEXT\n${localRecommendation.move}`);
+                }}>Give me the next action</button>
+                <button className="btn-secondary btn-sm" onClick={() => {
+                  setCopilotMode('draft');
+                  setCopilotArtifact(buildMissionDraft(activeMission));
+                }}>Draft it for me</button>
+                <button className="btn-secondary btn-sm" onClick={() => {
+                  setCopilotMode('blocked');
+                  setCopilotArtifact(`ACTION\nName the blocker in one line.\n\nMAKE\nBlocked because: ____\nTime lost: ____\nSuggested fix: ____\nSmaller next action: ____\n\nPROOF\nScreenshot after unblocked step.\n\nNEXT\nRun the smaller next action for 10 minutes.`);
+                  if (activeMission) openBlockedModal(activeMission.id);
+                }}>I&apos;m blocked</button>
               </div>
-              <div className="mb-3 grid gap-2">
-                <div className="flex flex-wrap gap-2">
-                  <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(state.active_outcome_id))}>Log proof</button>
-                  <button className="btn-ghost btn-sm" onClick={safeAction('I am blocked', () => void sendCoachMessage('I am blocked. Give one unblock action.'))}>I&apos;m blocked</button>
-                </div>
+              <div className="mb-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 whitespace-pre-wrap">
+                {copilotArtifact || `ACTION\n${localRecommendation.do}\n\nMAKE\n${buildMissionDraft(activeMission).split('\n\nMAKE\n')[1]?.split('\n\nPROOF')[0] || 'Use mission checklist template.'}\n\nPROOF\n${localRecommendation.proof}\n\nNEXT\n${localRecommendation.move}`}
               </div>
-              <button className="btn-ghost btn-sm mb-2 self-start" onClick={() => setShowCoachHistory((prev) => !prev)}>{showCoachHistory ? 'Hide history' : 'History'}</button>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <button className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(copilotArtifact || buildMissionDraft(activeMission))}>Copy draft</button>
+                <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeMission?.id || state.active_outcome_id))}>Log proof</button>
+                <button className="btn-secondary btn-sm" onClick={safeAction('Mark complete', () => activeMission && completeOutcome(activeMission.id))}>Mark complete</button>
+              </div>
+              <button className="btn-ghost btn-sm mb-2 self-start" onClick={() => setShowCoachHistory((prev) => !prev)}>{showCoachHistory ? 'Hide history' : 'Show history'}</button>
               {showCoachHistory && (
                 <div className="min-h-0 max-h-[320px] flex-1 space-y-2 overflow-y-auto rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-[15px] leading-7">
                   {state.coach_messages.map((m) => (
@@ -1602,7 +1564,7 @@ Money: ${debrief.money_score}/100
               )}
               {!showCoachHistory && (
                 <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3 text-sm text-slate-400">
-                  Recommendation stays pinned above. Open history only when needed.
+                  Copilot stays focused on current mission. Open history only when needed.
                 </div>
               )}
               <div className="mt-3 flex gap-2">
@@ -1612,17 +1574,19 @@ Money: ${debrief.money_score}/100
             </NextMovePanel>
             
           </div>
-        </DailyPlanPreview>
+        </DailyPlanPreview>}
 
-        <div className={`${mobileTab === 'timeline' ? 'block' : 'hidden'} mt-5 lg:block`}>
-          <DailyTimeline
-            open={mobileTab === 'timeline' && state.status === 'complete'}
-            shownEvents={shownEvents}
-            hasMore={state.events.length > 10}
-            showAllEvents={showAllEvents}
-            onToggleAll={() => setShowAllEvents((prev) => !prev)}
-          />
-        </div>
+        {state.events.length > 0 && (
+          <div className={`${mobileTab === 'timeline' ? 'block' : 'hidden'} mt-5 lg:block`}>
+            <DailyTimeline
+              open={mobileTab === 'timeline' && state.status === 'complete'}
+              shownEvents={shownEvents}
+              hasMore={state.events.length > 10}
+              showAllEvents={showAllEvents}
+              onToggleAll={() => setShowAllEvents((prev) => !prev)}
+            />
+          </div>
+        )}
 
         <div className={`${mobileTab === 'report' ? 'block' : 'hidden'} mt-5 lg:block`}>
           <details className="card p-5" open={state.status === 'complete'}>
