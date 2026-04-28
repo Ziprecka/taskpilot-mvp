@@ -16,7 +16,14 @@ export async function POST(req: NextRequest) {
   const result = await createUserProfileIfMissing({
     userId: user.id,
     email: body.email ?? user.email ?? null,
-    fullName: body.full_name ?? user.user_metadata?.full_name ?? null
+    fullName: body.full_name ?? user.user_metadata?.full_name ?? null,
+    source: body.source ?? body.utm_source ?? null,
+    ref: body.ref ?? null,
+    utm_source: body.utm_source ?? null,
+    utm_medium: body.utm_medium ?? null,
+    utm_campaign: body.utm_campaign ?? null,
+    utm_content: body.utm_content ?? null,
+    x_handle: body.x_handle ?? null
   });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
   const profile = await getUserProfile(user.id);
@@ -35,6 +42,15 @@ export async function PATCH(req: NextRequest) {
       full_name: body.full_name ?? null,
       avatar_url: body.avatar_url ?? null,
       onboarding_complete: typeof body.onboarding_complete === 'boolean' ? body.onboarding_complete : undefined,
+      source: body.source ?? undefined,
+      ref: body.ref ?? undefined,
+      utm_source: body.utm_source ?? undefined,
+      utm_medium: body.utm_medium ?? undefined,
+      utm_campaign: body.utm_campaign ?? undefined,
+      utm_content: body.utm_content ?? undefined,
+      x_handle: body.x_handle ?? undefined,
+      admin_notes: body.admin_notes ?? undefined,
+      contact_status: body.contact_status ?? undefined,
       updated_at: new Date().toISOString()
     })
     .eq('id', user.id)

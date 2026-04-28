@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import './globals.css';
 import { ToastProvider } from '@/components/ToastProvider';
+import { AnalyticsTracker } from '@/components/AnalyticsTracker';
 
 export const metadata: Metadata = {
   applicationName: 'TaskPilot',
@@ -29,7 +30,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          <AnalyticsTracker />
+          {children}
+        </ToastProvider>
       </body>
     </html>
   );

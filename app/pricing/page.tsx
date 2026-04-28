@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Nav } from '@/components/Nav';
 import { getProInterestStorageKey } from '@/lib/storage';
-import { trackProductEvent } from '@/lib/productEvents';
+import { trackEvent } from '@/lib/trackEvent';
+import { readAttribution } from '@/lib/attribution';
 
 export default function PricingPage() {
   const [showModal, setShowModal] = useState(false);
@@ -12,7 +13,12 @@ export default function PricingPage() {
   const [feature, setFeature] = useState('Pro');
   const [status, setStatus] = useState('');
 
+  useEffect(() => {
+    void trackEvent('pricing_viewed', {});
+  }, []);
+
   async function captureInterest() {
+    const attribution = readAttribution();
     const item = { id: crypto.randomUUID(), email, feature, created_at: new Date().toISOString() };
     try {
       const raw = localStorage.getItem(getProInterestStorageKey());
@@ -24,9 +30,9 @@ export default function PricingPage() {
     await fetch('/api/db/pro-interest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(item)
+      body: JSON.stringify({ ...item, ...attribution })
     }).catch(() => null);
-    await trackProductEvent('pro_interest_clicked', '/pricing', { feature });
+    await trackEvent('pro_interest_clicked', { feature, email, ...attribution });
     setStatus('Saved. We will notify you when early access opens.');
   }
 

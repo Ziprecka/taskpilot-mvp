@@ -30,7 +30,18 @@ export async function getUserProfile(userId?: string) {
   return data ?? null;
 }
 
-export async function createUserProfileIfMissing(params: { userId: string; email?: string | null; fullName?: string | null }) {
+export async function createUserProfileIfMissing(params: {
+  userId: string;
+  email?: string | null;
+  fullName?: string | null;
+  source?: string | null;
+  ref?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  x_handle?: string | null;
+}) {
   const admin = getSupabaseAdminClient();
   if (!admin) return { ok: false as const, error: 'Supabase admin unavailable.' };
   const existing = await admin.from('profiles').select('id').eq('id', params.userId).maybeSingle();
@@ -41,7 +52,15 @@ export async function createUserProfileIfMissing(params: { userId: string; email
     full_name: params.fullName ?? null,
     plan: 'free',
     subscription_status: 'free',
-    onboarding_complete: false
+    onboarding_complete: false,
+    source: params.source ?? null,
+    ref: params.ref ?? null,
+    utm_source: params.utm_source ?? null,
+    utm_medium: params.utm_medium ?? null,
+    utm_campaign: params.utm_campaign ?? null,
+    utm_content: params.utm_content ?? null,
+    x_handle: params.x_handle ?? null,
+    contact_status: 'new'
   });
   if (error) return { ok: false as const, error: error.message };
   return { ok: true as const, created: true };

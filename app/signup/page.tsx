@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Nav } from '@/components/Nav';
-import { trackProductEvent } from '@/lib/productEvents';
+import { trackEvent } from '@/lib/trackEvent';
+import { readAttribution } from '@/lib/attribution';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export default function SignupPage() {
@@ -17,6 +18,7 @@ export default function SignupPage() {
   const [status, setStatus] = useState('');
 
   async function signup() {
+    await trackEvent('signup_started', { route: '/signup' });
     setError('');
     setStatus('');
     if (!email || !password || !confirmPassword) return setError('Missing email or password.');
@@ -38,11 +40,12 @@ export default function SignupPage() {
     if (signUpError) return setError(signUpError.message);
     if (data.user?.id) {
       localStorage.setItem('taskpilot-auth-user-id', data.user.id);
-      await trackProductEvent('signup', '/signup', { email });
+      const attribution = readAttribution();
+      await trackEvent('signup_completed', { email, ...attribution });
       await fetch('/api/auth/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: fullName, email })
+        body: JSON.stringify({ full_name: fullName, email, ...(attribution || {}) })
       }).catch(() => null);
     }
     if (data.session) {

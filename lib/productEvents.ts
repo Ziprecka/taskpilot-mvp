@@ -1,4 +1,5 @@
 import { getStorageUserKey } from '@/lib/storage';
+import { readAttribution } from '@/lib/attribution';
 
 type ProductEvent = {
   id: string;
@@ -12,12 +13,13 @@ type ProductEvent = {
 const LOCAL_EVENTS_KEY = 'taskpilot-product-events';
 
 export async function trackProductEvent(eventType: string, route: string, metadata: Record<string, unknown> = {}) {
+  const attribution = typeof window !== 'undefined' ? readAttribution() : null;
   const event: ProductEvent = {
     id: crypto.randomUUID(),
     user_id: getStorageUserKey(),
     event_type: eventType,
     route,
-    metadata,
+    metadata: { ...metadata, attribution },
     created_at: new Date().toISOString()
   };
   if (typeof window !== 'undefined') {

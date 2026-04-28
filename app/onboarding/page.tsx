@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Nav } from '@/components/Nav';
 import { trackProductEvent } from '@/lib/productEvents';
+import { readAttribution } from '@/lib/attribution';
 
 const STORAGE_KEY = 'taskpilot-onboarding-complete';
 const PREFS_KEY = 'taskpilot-user-preferences';
@@ -20,9 +21,12 @@ export default function OnboardingPage() {
   const [workType, setWorkType] = useState<WorkType>('building/shipping');
   const [coachingStyle, setCoachingStyle] = useState<CoachingStyle>('balanced');
   const [firstAction, setFirstAction] = useState<FirstAction>('plan today');
+  const [xHandle, setXHandle] = useState('');
 
   useEffect(() => {
     void fetch('/api/health').then((res) => res.json()).then(setHealth).catch(() => null);
+    const attr = readAttribution();
+    if (attr?.x_handle) setXHandle(attr.x_handle.replace(/^@/, ''));
   }, []);
 
   async function complete() {
@@ -40,6 +44,11 @@ export default function OnboardingPage() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ onboarding_complete: true })
+    }).catch(() => null);
+    void fetch('/api/auth/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x_handle: xHandle || undefined })
     }).catch(() => null);
   }
 
@@ -68,6 +77,7 @@ export default function OnboardingPage() {
                 </button>
               ))}
             </div>
+            <input className="input mt-3" placeholder="X handle (optional)" value={xHandle} onChange={(e) => setXHandle(e.target.value.replace(/^@/, ''))} />
           </div>
         )}
 

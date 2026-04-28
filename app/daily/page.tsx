@@ -22,6 +22,7 @@ import { NextMovePanel } from '@/components/daily/NextMovePanel';
 import { DailyTimeline } from '@/components/daily/DailyTimeline';
 import { addRecentActivity } from '@/lib/activity';
 import { trackProductEvent } from '@/lib/productEvents';
+import { trackEvent } from '@/lib/trackEvent';
 import { getDailyStorageKey, getReportsStorageKey, getUserProgressionStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
 import { DEFAULT_ROBOT_ID, ROBOT_API_KEY_LS, ROBOT_ID_LS, secondsAgoLabel } from '@/lib/robotClientSettings';
@@ -288,6 +289,7 @@ export default function DailyPage() {
     }));
     logEvent('generated_top3', `Plan Builder: ${meta.detected_work_type}`);
     void trackProductEvent('daily_plan_created', '/daily', { dayType: meta.detected_work_type, count: outcomes.length });
+    void trackEvent('daily_plan_accepted', { dayType: meta.detected_work_type, count: outcomes.length });
     awardXP(10, 'Plan created', 'small');
     pushToast('Daily plan accepted.');
     setPlanReplaceBuffer(null);
@@ -554,6 +556,7 @@ export default function DailyPage() {
     logEvent('started_focus', `Focus started: ${outcome.title}`);
     addRecentActivity({ type: 'focus_started', title: `Focus started for ${outcome.title}`, route: '/daily' });
     void trackProductEvent('focus_started', '/daily', { outcome_id: outcome.id, title: outcome.title });
+    void trackEvent('mission_started', { outcome_id: outcome.id, title: outcome.title });
     awardXP(5, 'Focus started', 'small');
     pushToast('Focus block started.');
   }
@@ -594,6 +597,7 @@ export default function DailyPage() {
       plan_next_move_hint: undefined
     }));
     logEvent('completed_outcome', `Outcome completed: ${target.title}`);
+    void trackEvent('mission_completed', { outcome_id: target.id, title: target.title });
     addRecentActivity({ type: 'daily_outcome_completed', title: target.title, route: '/daily' });
     setProgression((prev) => ({ ...prev, completed_outcomes_total: prev.completed_outcomes_total + 1 }));
     awardXP(25, 'Outcome complete', 'big');
@@ -658,6 +662,7 @@ export default function DailyPage() {
     }));
     logEvent('proof_added', 'Proof logged.');
     void trackProductEvent('proof_logged', '/daily', { outcome_id: id });
+    void trackEvent('proof_logged', { outcome_id: id });
     updateState((prev) => ({ ...prev, proof_count_today: (prev.proof_count_today || 0) + 1 }));
     setProgression((prev) => ({ ...prev, proof_logged_total: prev.proof_logged_total + 1 }));
     awardXP(15, 'Evidence logged', 'big');
@@ -679,6 +684,7 @@ export default function DailyPage() {
     }));
     logEvent('proof_added', 'Proof logged');
     void trackProductEvent('proof_logged', '/daily', { outcome_id: item.outcome_id, type: item.type });
+    void trackEvent('proof_logged', { outcome_id: item.outcome_id, type: item.type });
     updateState((prev) => ({ ...prev, proof_count_today: (prev.proof_count_today || 0) + 1 }));
     setProgression((prev) => ({ ...prev, proof_logged_total: prev.proof_logged_total + 1 }));
     awardXP(15, 'Proof logged', 'big');
@@ -1031,6 +1037,8 @@ Money: ${debrief.money_score}/100
     }
     logEvent('report_generated', 'Day closed');
     void trackProductEvent('daily_report_generated', '/daily', { report_id: debrief.id, execution_score: debrief.execution_score });
+    void trackEvent('day_closed', { report_id: debrief.id, execution_score: debrief.execution_score });
+    void trackEvent('report_generated', { report_id: debrief.id, execution_score: debrief.execution_score });
     addRecentActivity({ type: 'daily_report_generated', title: 'Day closed with debrief', route: '/daily' });
   }
 

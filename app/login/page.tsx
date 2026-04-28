@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Nav } from '@/components/Nav';
+import { trackEvent } from '@/lib/trackEvent';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
@@ -78,6 +79,7 @@ export default function LoginPage() {
         return;
       }
       if (data.user?.id) localStorage.setItem('taskpilot-auth-user-id', data.user.id);
+      await trackEvent('login', { email });
       router.refresh();
       router.push(nextPath === '/dashboard' ? getSmartDefaultRoute() : nextPath);
     } catch {
