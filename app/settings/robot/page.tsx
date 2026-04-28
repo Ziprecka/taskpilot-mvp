@@ -37,6 +37,8 @@ type RobotStateView = {
   short_proof?: string;
   last_synced_at?: string | null;
   owner_user_id?: string | null;
+  owner_email?: string | null;
+  mapping_status?: 'mapped' | 'unmapped';
   last_updated?: string;
   short_message?: string;
 };
@@ -106,6 +108,8 @@ export default function RobotSettingsPage() {
   const rid = robotId.trim() || DEFAULT_ROBOT_ID;
   const meta = stateResp?.meta;
   const rstate = stateResp?.state;
+  const staleMs = rstate?.last_synced_at ? Date.now() - new Date(rstate.last_synced_at).getTime() : Number.POSITIVE_INFINITY;
+  const stale = Number.isFinite(staleMs) && staleMs > 10 * 60 * 1000;
 
   return (
     <main>
@@ -196,6 +200,8 @@ export default function RobotSettingsPage() {
             </button>
           </div>
           <p className="text-xs text-slate-400">Owner user_id: {rstate?.owner_user_id || 'unknown'}</p>
+          <p className="text-xs text-slate-400">Owner email: {rstate?.owner_email || 'unknown'}</p>
+          <p className="text-xs text-slate-400">Mapping status: {rstate?.mapping_status || 'unmapped'}</p>
           <p className="text-xs text-slate-400">State source: {rstate?.source || 'idle_fallback'}</p>
           <p className="text-xs text-slate-400">Last updated: {rstate?.last_updated || '—'}</p>
           <p className="text-xs text-slate-400">Last synced at: {rstate?.last_synced_at || '—'}</p>
@@ -211,6 +217,11 @@ export default function RobotSettingsPage() {
           {rstate?.source === 'idle_fallback' && (
             <p className="mt-2 text-xs text-amber-300">DeskBot is idle fallback. Create or sync Today plan.</p>
           )}
+          {rstate?.mapping_status === 'unmapped' && (
+            <p className="mt-2 text-xs text-amber-300">DeskBot is not mapped to a user.</p>
+          )}
+          {!rstate?.last_synced_at && <p className="mt-2 text-xs text-amber-300">Today state has not synced to server.</p>}
+          {stale && <p className="mt-2 text-xs text-amber-300">Robot state is stale.</p>}
           <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-950/60 p-3 text-xs text-slate-300">
             {JSON.stringify(stateResp || {}, null, 2)}
           </pre>
@@ -226,12 +237,76 @@ export default function RobotSettingsPage() {
               <button type="button" className="btn-secondary btn-sm" onClick={() => void fetchStatePreview()}>
                 Fetch state
               </button>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => call('/api/robot/force-sync', 'POST', { robot_id: rid })}>
+                Force sync from Today
+              </button>
               <button
                 type="button"
                 className="btn-secondary btn-sm"
                 onClick={() => call('/api/robot/event', 'POST', { robot_id: rid, event_type: 'button_pressed', content: 'Simulated check-in', metadata: {} })}
               >
                 Simulate check-in
+              </button>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => call('/api/robot/sync', 'POST', {
+                  robot_id: rid,
+                  daily_state: {
+                    date: new Date().toISOString().slice(0, 10),
+                    status: 'focus',
+                    daily_goals: 'Run 3 detailing jobs',
+                    selected_day_type: 'service_day',
+                    custom_context: '',
+                    outcomes: [
+                      {
+                        id: 'sim-1',
+                        title: '3-car route prep',
+                        short_title: '3-car route prep',
+                        why_it_matters: 'Run the day without drift',
+                        category: 'money',
+                        priority: 1,
+                        status: 'active',
+                        estimated_minutes: 25,
+                        actual_minutes: 5,
+                        proof_required: 'Photo route sheet',
+                        proof_provided: '',
+                        first_action: 'Confirm job order',
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                        completed_at: null
+                      }
+                    ],
+                    active_outcome_id: 'sim-1',
+                    active_focus_block: {
+                      id: 'sim-focus-1',
+                      outcome_id: 'sim-1',
+                      title: '3-car route prep',
+                      status: 'active',
+                      started_at: new Date().toISOString(),
+                      ended_at: null,
+                      planned_minutes: 25,
+                      actual_minutes: 5,
+                      current_action: 'Confirm job order',
+                      blocker: '',
+                      drift_score: 0,
+                      last_progress_at: new Date().toISOString()
+                    },
+                    events: [],
+                    coach_messages: [],
+                    report: null,
+                    debrief: null,
+                    xp_today: 0,
+                    proof_count_today: 0,
+                    lessons: [],
+                    last_saved_at: new Date().toISOString()
+                  }
+                })}
+              >
+                Simulate active mission
+              </button>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => call('/api/robot/clear-fallback', 'POST', { robot_id: rid })}>
+                Clear robot fallback state
               </button>
             </div>
           </div>

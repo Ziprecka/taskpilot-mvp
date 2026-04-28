@@ -14,6 +14,7 @@ import {
 import { getRobotFriendlyState, toRobotDisplayState, toRobotStateRecord, type RobotStateSource } from '@/lib/robotState';
 import type { DailyCommandState } from '@/types/workflow';
 import { normalizeRobotMission, normalizeRobotNextMove, normalizeRobotProof, normalizeRobotShortMessage } from '@/lib/robotText';
+import { resolveRobotOwner } from '@/lib/robotOwner';
 
 /**
  * PowerShell test:
@@ -34,56 +35,6 @@ function buildMeta(robotId: string) {
     last_event_type: lastEvent?.event_type ?? null,
     last_event_at: lastEvent?.created_at ?? null
   };
-}
-
-async function resolveRobotOwnerUserId(robotId: string): Promise<string | null> {
-  const guard = getDbGuard();
-  if (!guard.ok) return process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || null;
-
-  const device = await guard.supabase.from('robot_devices').select('user_id').eq('robot_id', robotId).maybeSingle();
-  if (device.data?.user_id) return String(device.data.user_id);
-
-  const fallbackUser = process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID;
-  if (fallbackUser) {
-    await guard.supabase.from('robot_devices').upsert(
-      {
-        user_id: fallbackUser,
-        robot_id: robotId,
-        name: robotId,
-        device_type: 'custom',
-        capabilities: {},
-        updated_at: new Date().toISOString()
-      },
-      { onConflict: 'robot_id' }
-    );
-    return fallbackUser;
-  }
-
-  const betaEmails = (process.env.TASKPILOT_BETA_ADMIN_EMAILS || '')
-    .split(',')
-    .map((v) => v.trim().toLowerCase())
-    .filter(Boolean);
-  if (!betaEmails.length) return null;
-
-  const prof = await guard.supabase.from('profiles').select('id,email').limit(200);
-  const matched = (prof.data || []).find((p: { email?: string | null }) =>
-    betaEmails.includes(String(p.email || '').toLowerCase())
-  );
-  const ownerId = (matched as { id?: string } | undefined)?.id || null;
-  if (ownerId) {
-    await guard.supabase.from('robot_devices').upsert(
-      {
-        user_id: ownerId,
-        robot_id: robotId,
-        name: robotId,
-        device_type: 'custom',
-        capabilities: {},
-        updated_at: new Date().toISOString()
-      },
-      { onConflict: 'robot_id' }
-    );
-  }
-  return ownerId;
 }
 
 async function getDailyFromDbForOwner(ownerUserId: string): Promise<{ daily: DailyCommandState | null; source: RobotStateSource; workflow_next_action?: string | null }> {
@@ -198,9 +149,10 @@ async function getDailyFromDbForOwner(ownerUserId: string): Promise<{ daily: Dai
 function addCompatFields(
   state: ReturnType<typeof toRobotDisplayState>,
   source: RobotStateSource,
-  ownerUserId: string | null,
+  owner: { userId: string | null; email?: string | null; mapped?: boolean },
   raw?: { mission?: string; next_action?: string; proof?: string; last_synced_at?: string | null }
 ) {
+  const normalizedSource = source === 'active_today_mission' ? 'active_daily_mission' : source;
   const rawMission = raw?.mission || state.mission || 'Plan today';
   const rawNext = raw?.next_action || state.next_move || 'Create daily plan';
   const rawProof = raw?.proof || state.proof_needed || 'Start first mission';
@@ -216,14 +168,17 @@ function addCompatFields(
     current_task: 'Today',
     current_step: mission,
     next_action: next,
-    source,
+    source: normalizedSource,
     raw_mission: rawMission,
     short_mission: mission,
     raw_next_action: rawNext,
     short_next_action: next,
     raw_proof: rawProof,
     short_proof: proof,
-    owner_user_id: ownerUserId,
+    owner_user_id: owner.userId,
+    owner_email: owner.email || null,
+    mapping_status: owner.mapped ? 'mapped' : 'unmapped',
+    updated_at: new Date().toISOString(),
     last_updated: new Date().toISOString(),
     last_synced_at: raw?.last_synced_at || null
   };
@@ -235,8 +190,22 @@ export async function GET(req: NextRequest) {
   const robotId = req.nextUrl.searchParams.get('robot_id');
   if (!robotId) return NextResponse.json({ ok: false, error: 'Missing robot_id.' }, { status: 400 });
 
-  const ownerUserId = await resolveRobotOwnerUserId(robotId);
+  const owner = await resolveRobotOwner(robotId);
+  const ownerUserId = owner.userId;
   const memoryDaily = getDailySnapshotForRobot(robotId);
+  const guard = getDbGuard();
+  const today = new Date().toISOString().slice(0, 10);
+  const dailyRobotState = ownerUserId && guard.ok
+    ? await guard.supabase
+        .from('daily_robot_state')
+        .select('*')
+        .eq('user_id', ownerUserId)
+        .eq('robot_id', robotId)
+        .eq('day_key', today)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
   const dbResolved = ownerUserId ? await getDailyFromDbForOwner(ownerUserId) : { daily: null, source: 'idle_fallback' as const, workflow_next_action: null };
   const chosenDaily = dbResolved.daily || memoryDaily;
   let source: RobotStateSource = dbResolved.daily ? dbResolved.source : memoryDaily ? 'active_daily_mission' : 'idle_fallback';
@@ -244,12 +213,20 @@ export async function GET(req: NextRequest) {
   const online = isRobotOnline(robotId);
   const friendly = getRobotFriendlyState(ownerUserId, robotId, chosenDaily);
   const state = toRobotStateRecord(friendly);
-  const guard = getDbGuard();
   const display = toRobotDisplayState(robotId, chosenDaily, {
     online,
     last_seen_at: lastSeen,
     workflow_fallback_action: source === 'workflow_fallback' ? dbResolved.workflow_next_action || undefined : undefined
   });
+  if (dailyRobotState.data) {
+    const drs = dailyRobotState.data as Record<string, unknown>;
+    source = 'daily_robot_state';
+    display.status = String(drs.status || display.status) as typeof display.status;
+    display.mission = normalizeRobotMission(String(drs.mission_short_title || drs.mission_title || display.mission));
+    display.next_move = normalizeRobotNextMove(String(drs.next_move || display.next_move));
+    display.proof_needed = normalizeRobotProof(String(drs.proof_needed || display.proof_needed));
+    display.short_message = normalizeRobotShortMessage('Stay on this mission.');
+  }
   const persisted = guard.ok
     ? await guard.supabase.from('robot_states').select('status,current_step,next_action,proof_needed,updated_at').eq('robot_id', robotId).maybeSingle()
     : { data: null };
@@ -264,7 +241,7 @@ export async function GET(req: NextRequest) {
       display.short_message = normalizeRobotShortMessage('Using latest synced Today mission.');
     }
   }
-  const compat = addCompatFields(display, source, ownerUserId, {
+  const compat = addCompatFields(display, source, owner, {
     mission: state.current_step,
     next_action: state.next_action,
     proof: state.proof_needed,
@@ -309,7 +286,8 @@ export async function POST(req: NextRequest) {
     setDailySnapshotForRobot(robotId, body.daily_snapshot as DailyCommandState);
   }
 
-  const ownerUserId = await resolveRobotOwnerUserId(robotId);
+  const owner = await resolveRobotOwner(robotId);
+  const ownerUserId = owner.userId;
   const memoryDaily = getDailySnapshotForRobot(robotId);
   const lastSeen = getLastRobotHeartbeat(robotId);
   const online = isRobotOnline(robotId);
@@ -317,7 +295,7 @@ export async function POST(req: NextRequest) {
   const computed = toRobotStateRecord(friendly);
   const state = updateRobotState(robotId, computed);
   const display = toRobotDisplayState(robotId, memoryDaily, { online, last_seen_at: lastSeen });
-  const compat = addCompatFields(display, memoryDaily ? 'active_daily_mission' : 'idle_fallback', ownerUserId, {
+  const compat = addCompatFields(display, memoryDaily ? 'active_daily_mission' : 'idle_fallback', owner, {
     mission: computed.current_step,
     next_action: computed.next_action,
     proof: computed.proof_needed,

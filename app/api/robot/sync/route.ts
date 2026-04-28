@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDbUserGuard } from '@/lib/db';
-import { syncDeskBotStateFromToday } from '@/lib/deskBotSync';
+import { syncDeskBotStateFromToday } from '@/lib/syncDeskBotState';
 import type { DailyCommandState } from '@/types/workflow';
 
 export async function POST(req: NextRequest) {
@@ -12,7 +12,19 @@ export async function POST(req: NextRequest) {
   const daily = body?.daily_state as DailyCommandState | undefined;
   if (!daily) return NextResponse.json({ ok: false, error: 'Missing daily_state.' }, { status: 400 });
 
-  const synced = await syncDeskBotStateFromToday(guard.userId, daily, robotId);
+  const activeMission =
+    daily.outcomes.find((o) => o.id === daily.active_focus_block?.outcome_id) ||
+    daily.outcomes.find((o) => o.status === 'active') ||
+    [...daily.outcomes].filter((o) => o.status === 'planned' || o.status === 'selected').sort((a, b) => a.priority - b.priority)[0] ||
+    null;
+  const synced = await syncDeskBotStateFromToday({
+    userId: guard.userId,
+    robotId,
+    dayKey: daily.date,
+    activeMission,
+    todayStatus: daily.status,
+    todayState: daily
+  });
   if (!synced.ok) return NextResponse.json({ ok: false, error: synced.error }, { status: 500 });
 
   await guard.supabase.from('robot_devices').upsert(

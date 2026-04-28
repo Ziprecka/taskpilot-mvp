@@ -47,8 +47,9 @@ export default function DashboardPage() {
       setProgression(null);
     }
     const key = localStorage.getItem('taskpilot-robot-api-key');
+    const rid = localStorage.getItem('taskpilot-robot-id') || 'atom-s3r-001';
     if (key) {
-      void fetch('/api/robot/state', { headers: { 'x-taskpilot-robot-key': key } })
+      void fetch(`/api/robot/state?robot_id=${encodeURIComponent(rid)}`, { headers: { 'x-taskpilot-robot-key': key } })
         .then((r) => r.json())
         .then((payload) => setDeskBotStatus({ online: payload?.meta?.online, mission: payload?.state?.mission, next_move: payload?.state?.next_move }))
         .catch(() => null);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateRobotRequest } from '@/lib/robotAuth';
 import { getDbGuard } from '@/lib/db';
 import { registerRobot } from '@/lib/robotStore';
+import { resolveRobotOwner } from '@/lib/robotOwner';
 
 export async function POST(req: NextRequest) {
   const auth = validateRobotRequest(req);
@@ -18,7 +19,8 @@ export async function POST(req: NextRequest) {
   });
   const guard = getDbGuard();
   if (guard.ok) {
-    const fallbackUser = process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || 'local-dev-user';
+    const owner = await resolveRobotOwner(robot.robot_id);
+    const fallbackUser = owner.userId || process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || 'local-dev-user';
     await guard.supabase.from('robot_devices').upsert({
       user_id: fallbackUser,
       robot_id: robot.robot_id,

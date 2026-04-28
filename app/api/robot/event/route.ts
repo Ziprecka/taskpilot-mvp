@@ -13,6 +13,7 @@ import { getDbGuard } from '@/lib/db';
 import { getRobotFriendlyState, toRobotDisplayState, truncate, type RobotDeskDisplayStatus } from '@/lib/robotState';
 import type { RobotCommandType, RobotEvent } from '@/types/robot';
 import { normalizeRobotMission, normalizeRobotNextMove, normalizeRobotProof } from '@/lib/robotText';
+import { resolveRobotOwner } from '@/lib/robotOwner';
 
 function replyFromSnapshot(robotId: string): {
   message: string;
@@ -28,13 +29,6 @@ function replyFromSnapshot(robotId: string): {
     next_move: truncate(f.next_action, 36),
     proof_needed: truncate(f.proof_needed, 36)
   };
-}
-
-async function resolveRobotOwnerUserId(robotId: string): Promise<string | null> {
-  const guard = getDbGuard();
-  if (!guard.ok) return process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || null;
-  const device = await guard.supabase.from('robot_devices').select('user_id').eq('robot_id', robotId).maybeSingle();
-  return (device.data?.user_id as string | undefined) || process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || null;
 }
 
 async function markActiveMissionBlocked(ownerUserId: string | null, note: string) {
@@ -112,7 +106,8 @@ export async function POST(req: NextRequest) {
     return command;
   }
 
-  const ownerUserId = await resolveRobotOwnerUserId(robotId);
+  const owner = await resolveRobotOwner(robotId);
+  const ownerUserId = owner.userId;
   switch (eventType) {
     case 'button_pressed':
       robot_reply = {

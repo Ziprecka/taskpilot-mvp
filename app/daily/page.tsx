@@ -1242,16 +1242,16 @@ Money: ${debrief.money_score}/100
     if (!outcome) return 'No active mission. Plan today first.';
     const title = outcome.title.toLowerCase();
     if (/detail|car|route|customer|van/.test(title)) {
-      return `ACTION\nOpen your calendar and create this table now.\n\nMAKE\nCustomer | Address | Service | Arrival Window | Estimated Finish | Notes\n\nPROOF\nScreenshot the completed route/timing table.\n\nNEXT\nSend the first "on my way" message template.`;
+      return `ACTION\nConfirm today's route and customer order now.\n\nMAKE\nCustomer text:\n"You're confirmed for today. I'll send an ETA before arrival."\n\nRoute checklist:\n- List all addresses in final order\n- Confirm travel buffer between jobs\n- Confirm service duration by job\n\nProof checklist:\n- Photo of route sheet\n- Photo of loaded van\n- First before/after pair\n\nReview request:\n"Thanks again. If you loved it, could you leave a quick review?"\n\nMaintenance offer:\n"I can lock your next maintenance slot now."\n\nNEXT\nSend customer #1 ETA message.`;
     }
     if (/sales|outreach|lead|prospect/.test(title)) {
       return `ACTION\nBuild your first 10-prospect list now.\n\nMAKE\nName | Channel | Pain Signal | Message Variant | Status\n\nPROOF\nScreenshot the sheet with 10 rows.\n\nNEXT\nSend message variant A to first 3 prospects.`;
     }
     if (/hardware|esp|arduino|atom|flash|firmware/.test(title)) {
-      return `ACTION\nRun the first hardware verification step.\n\nMAKE\nChecklist: detect port -> flash test sketch -> read serial output.\n\nPROOF\nScreenshot of serial output + detected port.\n\nNEXT\nRun API heartbeat test with robot key.`;
+      return `ACTION\nRun serial and wiring checks now.\n\nMAKE\nSerial/debug checklist:\n- Detect board port\n- Flash heartbeat sketch\n- Verify serial output every 5-10s\n\nWiring/setup proof:\n- Photo of wiring and board power\n- Serial monitor screenshot\n\nAPI test command:\ncurl -s "$BASE_URL/api/robot/state?robot_id=atom-s3r-001" -H "x-taskpilot-robot-key: YOUR_KEY"\n\nNEXT\nRun heartbeat POST and verify last_seen updates.`;
     }
     if (/build|feature|deploy|component|bug/.test(title)) {
-      return `ACTION\nOpen the target file and implement the smallest shippable diff.\n\nMAKE\nChecklist: file path -> change -> npm run build -> screenshot.\n\nPROOF\nBuild passes + screenshot of result.\n\nNEXT\nWrite 3-line release note.`;
+      return `ACTION\nImplement the smallest shippable change now.\n\nMAKE\nImplementation checklist:\n- Confirm target file and scope\n- Apply minimal diff\n- Verify behavior in UI/API\n\nTest commands:\n- npm run build\n- npm run dev\n\nDeployment proof checklist:\n- Build success output\n- Screenshot of changed behavior\n- API response sample if backend changed\n\nNEXT\nWrite a 3-line release note and ship.`;
     }
     return `ACTION\n${outcome.first_action || 'Start the first concrete action.'}\n\nMAKE\nChecklist:\n- ${outcome.checklist?.[0] || 'Do step 1'}\n- ${outcome.checklist?.[1] || 'Do step 2'}\n- ${outcome.checklist?.[2] || 'Do step 3'}\n\nPROOF\n${outcome.proof_required || 'Log one proof item.'}\n\nNEXT\nMark complete or move to the next mission.`;
   }
@@ -1532,8 +1532,8 @@ Money: ${debrief.money_score}/100
               <h2 className="mb-1 text-sm font-bold uppercase tracking-widest text-slate-400">Copilot</h2>
               <p className="mb-2 text-xs text-slate-500">Helps you finish the current mission.</p>
               <div className="mb-2 flex flex-wrap gap-2">
-                <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('action')}>Action</button>
-                <button className={`btn-secondary btn-sm ${copilotMode === 'draft' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('draft')}>Draft</button>
+                <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('action')}>Next action</button>
+                <button className={`btn-secondary btn-sm ${copilotMode === 'draft' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('draft')}>Draft it</button>
                 <button className={`btn-secondary btn-sm ${copilotMode === 'blocked' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('blocked')}>Blocked</button>
               </div>
               <div className="mb-2 flex flex-wrap gap-2">

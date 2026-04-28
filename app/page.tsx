@@ -31,25 +31,23 @@ export default function HomePage() {
         </div>
       </section>
       <section className="mx-auto max-w-7xl px-6 pb-14">
-        <div className="card card-list p-6">
-          <h2 className="mb-4 text-xl font-black">How TaskPilot works</h2>
-          <div className="grid gap-4 md:grid-cols-4">
-            <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
-              <p className="text-xs text-slate-500">Step 1</p>
-              <p className="font-semibold">Plan</p>
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
-              <p className="text-xs text-slate-500">Step 2</p>
-              <p className="font-semibold">Execute</p>
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
-              <p className="text-xs text-slate-500">Step 3</p>
-              <p className="font-semibold">Prove</p>
-            </div>
-            <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
-              <p className="text-xs text-slate-500">Step 4</p>
-              <p className="font-semibold">Report</p>
-            </div>
+        <h2 className="mb-4 text-xl font-black">How TaskPilot works</h2>
+        <div className="grid gap-3 md:grid-cols-4">
+          <div className="rounded-xl border border-slate-700 bg-slate-950/30 p-4">
+            <p className="text-xs text-slate-500">Step 1</p>
+            <p className="font-semibold">Plan</p>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-950/30 p-4">
+            <p className="text-xs text-slate-500">Step 2</p>
+            <p className="font-semibold">Execute</p>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-950/30 p-4">
+            <p className="text-xs text-slate-500">Step 3</p>
+            <p className="font-semibold">Prove</p>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-950/30 p-4">
+            <p className="text-xs text-slate-500">Step 4</p>
+            <p className="font-semibold">Report</p>
           </div>
         </div>
       </section>

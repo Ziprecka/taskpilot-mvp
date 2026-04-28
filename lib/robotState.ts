@@ -22,6 +22,7 @@ export type RobotDeskDisplayStatus =
   | 'complete';
 
 export type RobotStateSource =
+  | 'daily_robot_state'
   | 'active_daily_mission'
   | 'active_today_mission'
   | 'planned_daily_mission'
