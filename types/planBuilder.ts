@@ -2,15 +2,16 @@ import type { DailyAIResponse, DailyOutcome, Workflow } from '@/types/workflow';
 
 /** Work-type-aware planning for Today + Playbooks */
 export type DetectedWorkType =
-  | 'service_business_day'
-  | 'sales_outreach_day'
-  | 'app_build_day'
-  | 'hardware_setup_day'
-  | 'research_day'
-  | 'admin_cleanup_day'
-  | 'learning_day'
-  | 'personal_day'
-  | 'generic_productivity';
+  | 'service_day'
+  | 'client_work_day'
+  | 'sales_day'
+  | 'hardware_setup'
+  | 'app_build'
+  | 'research'
+  | 'admin'
+  | 'learning'
+  | 'personal'
+  | 'custom';
 
 export type PlanBuilderMode = 'daily_execution' | 'playbook';
 
@@ -28,6 +29,23 @@ export type PlanBuilderInput = {
   proof_preference?: ProofPreference;
   /** When user overrides auto-detection */
   detected_work_type_override?: DetectedWorkType | null;
+};
+
+export type PlannerSpecificity = 'weak' | 'good' | 'strong';
+
+export type TodayMission = {
+  title: string;
+  objective: string;
+  first_action: string;
+  checklist: string[];
+  proof_required: string;
+  estimated_minutes: number;
+  risk: string;
+  done_when: string;
+  category: string;
+  leverage_score: number;
+  money_potential: 'low' | 'medium' | 'high';
+  short_title?: string;
 };
 
 export type ScheduleBlock = {
@@ -71,7 +89,13 @@ export type PlanBuilderOutput = {
   plan_summary: string;
   assumptions: string[];
   clarifying_questions: string[];
+  sections?: Array<{ id: string; title: string; items: string[] }>;
+  specificity_score?: number;
+  specificity_label?: PlannerSpecificity;
+  generated_from_test_prompt?: boolean;
+  extracted_entities?: string[];
   daily_outcomes?: DailyOutcome[];
+  today_missions?: TodayMission[];
   playbook?: Workflow;
   schedule_blocks?: ScheduleBlock[];
   proof_checklist?: string[];

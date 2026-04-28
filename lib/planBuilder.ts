@@ -1,91 +1,59 @@
+import type { DailyOutcome, Workflow, WorkflowCategory, WorkflowStep } from '@/types/workflow';
 import type {
-  DailyOutcome,
-  Workflow,
-  WorkflowCategory,
-  WorkflowStep
-} from '@/types/workflow';
-import type {
+  DailyNextMoveResponse,
   DetectedWorkType,
   MessageTemplate,
   PlanBuilderInput,
   PlanBuilderOutput,
+  PlannerSpecificity,
   PlanTimeHorizon,
   RiskPlanItem,
   ScheduleBlock,
-  DailyNextMoveResponse
+  TodayMission
 } from '@/types/planBuilder';
 
 const WORK_TYPE_LABELS: Record<DetectedWorkType, string> = {
-  service_business_day: 'Service Business Day',
-  sales_outreach_day: 'Sales / Outreach Day',
-  app_build_day: 'App / Build Day',
-  hardware_setup_day: 'Hardware Setup Day',
-  research_day: 'Research Day',
-  admin_cleanup_day: 'Admin / Cleanup Day',
-  learning_day: 'Learning Day',
-  personal_day: 'Personal Day',
-  generic_productivity: 'General Productivity'
+  service_day: 'Service Day',
+  client_work_day: 'Client Work Day',
+  sales_day: 'Sales Day',
+  hardware_setup: 'Hardware Setup',
+  app_build: 'App Build',
+  research: 'Research',
+  admin: 'Admin',
+  learning: 'Learning',
+  personal: 'Personal',
+  custom: 'Custom'
 };
 
-const GENERIC_FIRST_ACTION_BAN =
-  /^(start a 5-minute first move|make progress|work on the task|begin by focusing|continue current mission)/i;
+const BAD_GENERIC_PHRASES = [
+  'start a 5-minute first move',
+  'make progress',
+  'work on this',
+  'improve workflow',
+  'continue current mission',
+  'ship one scoped feature',
+  'fix one visible ux issue'
+];
+const GENERIC_FIRST_ACTION_BAN = new RegExp(`^(${BAD_GENERIC_PHRASES.join('|')})`, 'i');
 
 export function workTypeLabel(type: DetectedWorkType): string {
-  return WORK_TYPE_LABELS[type] || WORK_TYPE_LABELS.generic_productivity;
+  return WORK_TYPE_LABELS[type] || WORK_TYPE_LABELS.custom;
 }
 
 export function detectWorkType(raw: string): DetectedWorkType {
   const s = raw.toLowerCase();
-  if (!s.trim()) return 'generic_productivity';
-
-  const hardwareHints =
-    /\b(atom|arduino|esp32|esp-?32|com port|device manager|usb serial|flash|firmware|gpio|sensor|breadboard|wiring|driver\b|raspberry|mcu|iot)\b/i;
-  const serviceHints =
-    /\b(detail|detailing|mobile detail|car wash|appointment|customer|before.?after|van|route|detailing truck|wax|ceramic|buff)\b/i;
-  const salesHints =
-    /\b(beta user|beta users|get users|outreach|prospect|cold email|sales|pipeline|demo booking|linkedin|dm\b|lead)\b/i;
-  const buildHints =
-    /\b(next\.?js|react|typescript|deploy|vercel|component|pull request|commit|route\b|page\.tsx|feature flag|bug fix)\b/i;
-  const researchHints =
-    /\b(research|sources|literature review|compare vendors|survey)\b/i;
-  const adminHints =
-    /\b(inbox|calendar|schedule|tax|invoice|cleanup|organize desk|clear backlog)\b/i;
-  const learningHints =
-    /\b(course|lesson|quiz|study|notes|flashcard|certification)\b/i;
-  const personalHints =
-    /\b(gym|health|family|appointment personal|home)\b/i;
-
-  const score = (re: RegExp) => (re.test(s) ? 1 : 0);
-
-  const scores: Record<DetectedWorkType, number> = {
-    hardware_setup_day:
-      score(hardwareHints) * 4 +
-      (/\b(s3r|atom)\b/i.test(s) ? 6 : 0) +
-      (/\b(api|robot)\b/i.test(s) ? 2 : 0),
-    service_business_day:
-      score(serviceHints) * 4 +
-      (/\b\d\s*car|\d+\s*cars|three car|mobile\b/i.test(s) ? 5 : 0),
-    sales_outreach_day:
-      score(salesHints) * 4 +
-      (/\bbeta\b/i.test(s) ? 3 : 0),
-    app_build_day: score(buildHints) * 4 + (/\b(ship|deploy|fix ux)\b/i.test(s) ? 2 : 0),
-    research_day: score(researchHints) * 4,
-    admin_cleanup_day: score(adminHints) * 4,
-    learning_day: score(learningHints) * 4,
-    personal_day: score(personalHints) * 4,
-    generic_productivity: 0
-  };
-
-  let best: DetectedWorkType = 'generic_productivity';
-  let max = -1;
-  (Object.keys(scores) as DetectedWorkType[]).forEach((k) => {
-    if (scores[k] > max) {
-      max = scores[k];
-      best = k;
-    }
-  });
-  if (max < 2) return 'generic_productivity';
-  return best;
+  if (!s.trim()) return 'custom';
+  const has = (re: RegExp) => re.test(s);
+  if (has(/\b(detail|detailing|mobile detailing|car detail|suds auto salon|appointment|before\/after|route day|upsell|review ask)\b/)) return 'service_day';
+  if (has(/\b(client|deliverable|invoice|scope|brief|revision)\b/)) return 'client_work_day';
+  if (has(/\b(beta users?|outreach|prospect|lead|dm|cold email|sales)\b/)) return 'sales_day';
+  if (has(/\b(atom|s3r|arduino|esp32|flash|firmware|com port|driver|wiring|robot api)\b/)) return 'hardware_setup';
+  if (has(/\b(next\.?js|react|typescript|deploy|bug|component|route|feature|vercel|app)\b/)) return 'app_build';
+  if (has(/\b(research|compare|sources|evaluate)\b/)) return 'research';
+  if (has(/\b(inbox|calendar|admin|cleanup|overdue|paperwork|tax)\b/)) return 'admin';
+  if (has(/\b(learn|study|course|quiz|practice|notes)\b/)) return 'learning';
+  if (has(/\b(home|health|family|personal)\b/)) return 'personal';
+  return 'custom';
 }
 
 function nowIso() {
@@ -108,19 +76,19 @@ function outcomeBase(partial: Omit<DailyOutcome, 'id' | 'created_at' | 'updated_
 }
 
 function pickCategory(work: DetectedWorkType): DailyOutcome['category'] {
-  if (work === 'sales_outreach_day' || work === 'service_business_day') return 'money';
-  if (work === 'learning_day') return 'learning';
-  if (work === 'admin_cleanup_day') return 'admin';
-  if (work === 'personal_day') return 'health';
-  if (work === 'hardware_setup_day' || work === 'app_build_day') return 'build';
+  if (work === 'sales_day' || work === 'service_day' || work === 'client_work_day') return 'money';
+  if (work === 'learning') return 'learning';
+  if (work === 'admin') return 'admin';
+  if (work === 'personal') return 'health';
+  if (work === 'hardware_setup' || work === 'app_build') return 'build';
   return 'other';
 }
 
 function leverageFor(work: DetectedWorkType, idx: number): number {
   const base =
-    work === 'generic_productivity'
+    work === 'custom'
       ? 6
-      : work === 'service_business_day' || work === 'sales_outreach_day'
+      : work === 'service_day' || work === 'sales_day'
         ? 9
         : 8;
   return Math.min(10, Math.max(4, base - idx));
@@ -140,79 +108,146 @@ function parseCarCount(raw: string): number {
   return 3;
 }
 
-function extractHardwarePrimary(raw: string): string {
-  const m = raw.match(/\b(Atom\s*S3R|ESP32|Arduino\s*\w+|Raspberry\s*Pi\s*\w*)\b/i);
-  return m ? m[1] : 'device';
+function classifyGoal(raw: string): DetectedWorkType {
+  return detectWorkType(raw);
 }
 
-function extractSideQuest(raw: string): string | null {
-  const lower = raw.toLowerCase();
-  const idx = lower.indexOf('also');
-  if (idx === -1) return null;
-  const tail = raw.slice(idx + 4).trim();
-  if (tail.length < 8) return null;
-  return tail.replace(/^[,.\s]+/, '');
+function extractEntities(raw: string): string[] {
+  const words = raw
+    .split(/[^a-zA-Z0-9]+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 3);
+  return Array.from(new Set(words)).slice(0, 8);
 }
 
-function buildServiceBusinessPlan(raw: string, horizon: PlanTimeHorizon): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
+function toMission(outcome: DailyOutcome): TodayMission {
+  const money =
+    outcome.money_potential === 'high' || outcome.money_potential === 'medium'
+      ? outcome.money_potential
+      : 'low';
+  return {
+    title: outcome.title,
+    objective: outcome.objective || outcome.why_it_matters || outcome.title,
+    first_action: concreteFirstAction(outcome.first_action || '', `Open task board and start ${outcome.title}.`),
+    checklist: outcome.checklist || [outcome.first_action || 'Start', 'Execute', 'Log proof'],
+    proof_required: outcome.proof_required || 'Log proof in TaskPilot',
+    estimated_minutes: outcome.estimated_minutes || 30,
+    risk: outcome.risk || 'Time overrun',
+    done_when: outcome.done_when || 'Proof logged and checklist complete',
+    category: outcome.category,
+    leverage_score: outcome.leverage_score || 7,
+    money_potential: money,
+    short_title: outcome.short_title
+  };
+}
+
+function scoreSpecificity(raw: string, outcomes: DailyOutcome[], work: DetectedWorkType): { score: number; label: PlannerSpecificity } {
+  const text = `${raw} ${outcomes.map((o) => `${o.title} ${o.first_action} ${o.proof_required}`).join(' ')}`.toLowerCase();
+  let score = 0;
+  const entities = extractEntities(raw);
+  if (entities.some((e) => text.includes(e.toLowerCase()))) score += 2;
+  if (/\b(open|write|list|send|create|load|confirm|plug|run|flash)\b/.test(text)) score += 2;
+  if (/\bphoto|screenshot|sheet|message|route|checklist|calendar|device manager|google sheets\b/.test(text)) score += 2;
+  if (/\bjob|vehicle|route|timeline|block|step|order|today|tomorrow\b/.test(text)) score += 2;
+  if (!BAD_GENERIC_PHRASES.some((p) => text.includes(p))) score += 2;
+  if (work === 'service_day' && /\bvehicle|customer|route|van|review\b/.test(text)) score += 2;
+  if (score >= 10) return { score, label: 'strong' };
+  if (score >= 7) return { score, label: 'good' };
+  return { score, label: 'weak' };
+}
+
+function choosePlanTemplate(work: DetectedWorkType): string {
+  if (work === 'service_day') return 'service_operating_plan';
+  if (work === 'sales_day') return 'sales_execution_plan';
+  if (work === 'hardware_setup') return 'hardware_setup_plan';
+  if (work === 'app_build') return 'build_day_plan';
+  return 'generic_execution_plan';
+}
+
+function buildServicePlan(raw: string, horizon: PlanTimeHorizon): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
   const cars = parseCarCount(raw);
   const when = horizon === 'tomorrow' ? 'tomorrow' : 'today';
-
   const outcomes: DailyOutcome[] = [
     outcomeBase({
-      title: `Prep van, supplies, route, and customer briefing before first ${when}'s appointments (${cars} jobs).`,
-      why_it_matters: 'Field days fail when loading and routing are guessed on-site.',
+      title: `Confirm schedule, route, and customer expectations for ${cars} detailing jobs.`,
+      objective: 'Lock route order and timing before field execution.',
+      why_it_matters: 'No written route means delays and missed commitments.',
       category: 'money',
       priority: 1,
       status: 'planned',
-      estimated_minutes: 45,
+      estimated_minutes: 35,
       actual_minutes: 0,
-      proof_required: `Photo of loaded supplies + written route sheet with addresses, arrival windows, and job order for ${cars} vehicles.`,
+      proof_required: 'Screenshot or note of route/timing sheet.',
       proof_provided: '',
       first_action:
-        'Open your calendar/booking app and write each customer name, address, service package, arrival target, and estimated finish time for every appointment.',
+        'Open calendar/booking app and write each customer name, address, service package, arrival target, and estimated finish.',
+      checklist: [
+        'Confirm number of jobs and addresses',
+        'Set appointment order by drive time',
+        'Note customer special requests and gate/parking instructions'
+      ],
+      done_when: 'Route sheet and customer expectations are written and checked.',
+      risk: 'Traffic delay or wrong job order',
+      short_title: `${cars}-car route plan`,
       value_score: 9,
       quality_score: 8,
-      leverage_score: leverageFor('service_business_day', 0),
+      leverage_score: leverageFor('service_day', 0),
       money_potential: 'high',
       urgency: 'high',
       effort: 'medium'
     }),
     outcomeBase({
-      title: `Execute ${cars} complete details with before/after proof and timely customer messaging.`,
-      why_it_matters: 'Proof + communication reduce disputes and drive reviews.',
+      title: `Prep van and supplies for all ${cars} vehicles.`,
+      objective: 'Prevent mid-day supply failures during job execution.',
+      why_it_matters: 'Supply misses force delays and quality drops.',
       category: 'money',
       priority: 2,
       status: 'planned',
-      estimated_minutes: cars * 90,
+      estimated_minutes: 40,
       actual_minutes: 0,
-      proof_required: `Per vehicle: exterior before, interior before, worst-area close-up, exterior after, interior after, detail shot; plus screenshot or copy of completion text sent.`,
+      proof_required: 'Photo of loaded van and supply checklist.',
       proof_provided: '',
       first_action:
-        'Before starting vehicle #1, send an “on my way” message with ETA and parking note using your saved template.',
+        'Load towels, chemicals, vacuum, steamer, power/water backup, brushes, glass towels, tire dressing, and trash bags.',
+      checklist: [
+        'Chemicals and tools loaded',
+        'Power/water backup checked',
+        'Consumables counted for all jobs'
+      ],
+      done_when: 'Van loadout photo captured and checklist complete.',
+      risk: 'Low supplies during Job 2/3',
+      short_title: 'Van loadout ready',
       value_score: 9,
       quality_score: 8,
-      leverage_score: leverageFor('service_business_day', 1),
+      leverage_score: leverageFor('service_day', 1),
       money_potential: 'high',
       urgency: 'high',
-      effort: 'high'
+      effort: 'medium'
     }),
     outcomeBase({
-      title: 'Turn completed jobs into repeat revenue and reviews.',
-      why_it_matters: 'Same-day follow-up captures upsells while memory is fresh.',
+      title: 'Create job-by-job proof and communication checklist.',
+      objective: 'Standardize before/after proof + completion + upsell/review flow.',
+      why_it_matters: 'Proof and communication drive trust and repeat revenue.',
       category: 'money',
       priority: 3,
       status: 'planned',
-      estimated_minutes: 35,
+      estimated_minutes: 30,
       actual_minutes: 0,
-      proof_required:
-        'For each customer: upsell/maintenance note saved + review request sent + logged recommendation for next visit.',
+      proof_required: 'Screenshot/photo of checklist.',
       proof_provided: '',
       first_action:
-        'Create a 3-row mini tracker: Customer | Upsell offered | Review ask sent (Y/N) — fill after each job.',
+        'Create a 3-row checklist: before photos, worst area, after photos, completion text, review ask, maintenance recommendation.',
+      checklist: [
+        'Before/after slots per vehicle',
+        'Completion message and recommendation slot',
+        'Review ask / follow-up slot'
+      ],
+      done_when: 'Checklist exists and is attached to today plan.',
+      risk: 'Forgetting proof or follow-up under time pressure',
+      short_title: 'Proof + message ops',
       value_score: 8,
       quality_score: 8,
-      leverage_score: leverageFor('service_business_day', 2),
+      leverage_score: leverageFor('service_day', 2),
       money_potential: 'high',
       urgency: 'medium',
       effort: 'low'
@@ -220,12 +255,12 @@ function buildServiceBusinessPlan(raw: string, horizon: PlanTimeHorizon): Omit<P
   ];
 
   const schedule_blocks: ScheduleBlock[] = [
-    { id: 'sb1', label: 'Tonight: supplies + route sheet', duration_minutes: 30 },
+    { id: 'sb1', label: 'Tonight prep', duration_minutes: 30 },
     { id: 'sb2', label: 'Morning loadout + weather/traffic check', duration_minutes: 20 },
-    { id: 'sb3', label: 'Pre-route prep + messages', duration_minutes: 15 },
+    { id: 'sb3', label: 'Drive / Job 1', duration_minutes: 90 },
     { id: 'sb4', label: 'Drive / Job 1', duration_minutes: 90 },
     { id: 'sb5', label: 'Drive / Job 2', duration_minutes: 90 },
-    { id: 'sb6', label: cars >= 3 ? 'Drive / Job 3' : 'Buffer / admin', duration_minutes: 90 },
+    { id: 'sb6', label: cars >= 3 ? 'Drive / Job 3' : 'Buffer', duration_minutes: 90 },
     { id: 'sb7', label: 'Van reset + day report + tomorrow seed', duration_minutes: 25 }
   ];
 
@@ -242,8 +277,8 @@ function buildServiceBusinessPlan(raw: string, horizon: PlanTimeHorizon): Omit<P
     },
     {
       id: 'm3',
-      label: 'Completion + payment',
-      body: 'All set — after photos attached. Total [amount]. Payment link: [link]. Thanks again!'
+      label: 'Completion',
+      body: 'Detail complete. After photos attached. Let me know if anything needs touch-up.'
     },
     {
       id: 'm4',
@@ -258,27 +293,32 @@ function buildServiceBusinessPlan(raw: string, horizon: PlanTimeHorizon): Omit<P
   ];
 
   const proof_checklist = [
-    'Each vehicle: exterior before',
+    'Arrival photo',
+    'Exterior before',
     'Interior before',
     'Worst area close-up',
-    'Exterior after',
-    'Interior after',
-    'Hero detail shot',
+    'Completed exterior',
+    'Completed interior',
+    'Satisfying detail shot',
     'Completion message sent',
-    'Upsell / next visit note logged'
+    'Issue/recommendation logged',
+    'Review/follow-up request sent'
   ];
 
   const risk_plan: RiskPlanItem[] = [
-    { risk: 'Running behind schedule', mitigation: 'Send ETA update + trim non-essential steps but never skip proof photos.' },
-    { risk: 'Weather / lighting hurts photos', mitigation: 'Use consistent angles + flash note in customer message.' }
+    { risk: 'Traffic delay', mitigation: 'Reorder jobs and send ETA updates early.' },
+    { risk: 'Vehicle worse than expected', mitigation: 'Set revised expectation and skip low-impact extras.' },
+    { risk: 'Customer unavailable', mitigation: 'Call and send completion gate message before arrival.' },
+    { risk: 'Low supplies', mitigation: 'Carry backup water/power and consumables checklist.' },
+    { risk: 'Weather/time overrun', mitigation: 'Capture proof early and adjust non-essential detail depth.' }
   ];
 
   const next_move: DailyNextMoveResponse = {
     direct_answer: 'Confirm appointments and route before you load the van.',
-    next_move: `Confirm ${when}'s ${cars} appointments.`,
+    next_move: `Confirm ${cars}-car route order.`,
     go_here: 'Calendar + route sheet',
     write_make_do:
-      'List address, service, arrival time, and expected duration per vehicle; check drive times between stops.',
+      'List each address, service, arrival time, and expected finish in route order.',
     proof_needed: 'Screenshot or photo of completed route/timing list.',
     avoid: 'Leaving without a written sequence of jobs.',
     suggested_action: 'start_focus',
@@ -289,9 +329,9 @@ function buildServiceBusinessPlan(raw: string, horizon: PlanTimeHorizon): Omit<P
   };
 
   return {
-    detected_work_type: 'service_business_day',
-    plan_title: `Mobile detailing field day (${cars} vehicles)`,
-    plan_summary: `Prep → execute ${cars} jobs with photo proof → same-day upsell/review loop → van reset.`,
+    detected_work_type: 'service_day',
+    plan_title: `Service Day Operating Plan (${cars} cars)`,
+    plan_summary: `Service brief, timeline blocks, mission checklist, proof ops, customer messages, and debrief for ${when}.`,
     assumptions: [
       `You already have ${cars} bookings or intend to finish ${cars} vehicles ${when}.`,
       'Customers can receive SMS/email updates.'
@@ -300,13 +340,41 @@ function buildServiceBusinessPlan(raw: string, horizon: PlanTimeHorizon): Omit<P
       'Are payments on-site or invoice after photos?',
       'Do you need water/electric hookups confirmed per stop?'
     ],
+    sections: [
+      {
+        id: 'brief',
+        title: 'Service Day Brief',
+        items: [
+          `${cars} jobs targeted ${when}`,
+          'Prep required: route + van loadout + customer expectations',
+          'Communication: arrival/on-my-way/completion/review',
+          'Revenue: maintenance offers + review asks'
+        ]
+      },
+      { id: 'timeline', title: 'Timeline', items: schedule_blocks.map((b) => b.label) },
+      { id: 'missions', title: 'Missions', items: outcomes.map((o) => o.title) },
+      { id: 'proof', title: 'Proof Checklist', items: proof_checklist },
+      { id: 'messages', title: 'Customer Messages', items: message_templates.map((m) => m.label) },
+      { id: 'risks', title: 'Risks', items: risk_plan.map((r) => `${r.risk} → ${r.mitigation}`) }
+    ],
     daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
     schedule_blocks,
     proof_checklist,
     message_templates,
     risk_plan,
     next_move
   };
+}
+function extractHardwarePrimary(raw: string): string {
+  const m = raw.match(/\b(Atom\s*S3R|ESP32|Arduino\s*\w+|Raspberry\s*Pi\s*\w*)\b/i);
+  return m ? m[1] : 'device';
+}
+function extractSideQuest(raw: string): string | null {
+  const idx = raw.toLowerCase().indexOf('also');
+  if (idx < 0) return null;
+  const tail = raw.slice(idx + 4).trim();
+  return tail.length > 5 ? tail : null;
 }
 
 function buildHardwarePlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
@@ -328,7 +396,7 @@ function buildHardwarePlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
         'Open Device Manager (Windows) or list /dev/tty* (Mac/Linux) after plugging in USB data — note the exact port name.',
       value_score: 9,
       quality_score: 8,
-      leverage_score: leverageFor('hardware_setup_day', 0),
+      leverage_score: leverageFor('hardware_setup', 0),
       money_potential: 'medium',
       urgency: 'high',
       effort: 'medium'
@@ -347,7 +415,7 @@ function buildHardwarePlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
         'In Arduino IDE or PlatformIO, open the vendor blink/test example targeting your board and port — upload once.',
       value_score: 9,
       quality_score: 8,
-      leverage_score: leverageFor('hardware_setup_day', 1),
+      leverage_score: leverageFor('hardware_setup', 1),
       money_potential: 'low',
       urgency: 'high',
       effort: 'high'
@@ -366,7 +434,7 @@ function buildHardwarePlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
         'Copy your Robot API base URL + key into a scratch `.env.local` and run one curl against `/api/robot/heartbeat` or your register route.',
       value_score: 8,
       quality_score: 8,
-      leverage_score: leverageFor('hardware_setup_day', 2),
+      leverage_score: leverageFor('hardware_setup', 2),
       money_potential: 'medium',
       urgency: 'medium',
       effort: 'medium'
@@ -440,12 +508,13 @@ function buildHardwarePlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
   };
 
   return {
-    detected_work_type: 'hardware_setup_day',
+    detected_work_type: 'hardware_setup',
     plan_title: `${device} bring-up + Robot API hook`,
     plan_summary: 'Enumerate → flash test → API smoke → notes; optional miner side quest is strictly timeboxed.',
     assumptions: ['USB cable supports data', 'Developer machine can install drivers'],
     clarifying_questions: ['Which OS are you flashing from?', 'Do you already have Robot API credentials in `.env.local`?'],
     daily_outcomes: outcomes.slice(0, 6),
+    today_missions: outcomes.slice(0, 6).map(toMission),
     tools_needed,
     debug_checklist,
     proof_checklist: ['COM screenshot', 'Upload success', 'Serial output', 'API ping proof'],
@@ -470,7 +539,7 @@ function buildSalesPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { n
         'Open a blank doc and finish: “Who loses money/time without TaskPilot?” in 3 bullets.',
       value_score: 8,
       quality_score: 8,
-      leverage_score: leverageFor('sales_outreach_day', 0),
+      leverage_score: leverageFor('sales_day', 0),
       money_potential: 'high',
       urgency: 'high',
       effort: 'low'
@@ -489,7 +558,7 @@ function buildSalesPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { n
         'Open Google Sheets and create columns: Name | Segment | Channel | Pain signal | Message variant | Status.',
       value_score: 9,
       quality_score: 8,
-      leverage_score: leverageFor('sales_outreach_day', 1),
+      leverage_score: leverageFor('sales_day', 1),
       money_potential: 'high',
       urgency: 'high',
       effort: 'medium'
@@ -508,7 +577,7 @@ function buildSalesPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { n
         'Draft Message A (problem-led) and Message B (social proof-led) ≤90 words — paste into tracker rows 1–2.',
       value_score: 9,
       quality_score: 8,
-      leverage_score: leverageFor('sales_outreach_day', 2),
+      leverage_score: leverageFor('sales_day', 2),
       money_potential: 'high',
       urgency: 'high',
       effort: 'medium'
@@ -547,12 +616,13 @@ function buildSalesPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { n
   };
 
   return {
-    detected_work_type: 'sales_outreach_day',
+    detected_work_type: 'sales_day',
     plan_title: 'Beta acquisition sprint',
     plan_summary: 'ICP → tracker → 10 sends with proof → capture replies.',
     assumptions: ['You have at least one channel (email/DM) to reach prospects'],
     clarifying_questions: ['Which segment are you prioritizing first (builders vs ops vs agencies)?'],
     daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
     prospect_columns,
     message_templates,
     success_metrics,
@@ -576,7 +646,7 @@ function buildAppBuildPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
         'Search the repo for the relevant route/component name from your goal — paste file path candidates into notes.',
       value_score: 8,
       quality_score: 8,
-      leverage_score: leverageFor('app_build_day', 0),
+      leverage_score: leverageFor('app_build', 0),
       money_potential: 'medium',
       urgency: 'high',
       effort: 'medium'
@@ -595,7 +665,7 @@ function buildAppBuildPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
         'Open the target file, branch `feat/<slug>`, implement change behind smallest diff — run `npm run build` once.',
       value_score: 9,
       quality_score: 8,
-      leverage_score: leverageFor('app_build_day', 1),
+      leverage_score: leverageFor('app_build', 1),
       money_potential: 'medium',
       urgency: 'high',
       effort: 'high'
@@ -614,7 +684,7 @@ function buildAppBuildPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
         'If using Vercel: push branch, open preview URL, verify change in prod-like build.',
       value_score: 8,
       quality_score: 8,
-      leverage_score: leverageFor('app_build_day', 2),
+      leverage_score: leverageFor('app_build', 2),
       money_potential: 'medium',
       urgency: 'medium',
       effort: 'medium'
@@ -638,12 +708,13 @@ function buildAppBuildPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
   };
 
   return {
-    detected_work_type: 'app_build_day',
+    detected_work_type: 'app_build',
     plan_title: 'Ship one scoped product change',
     plan_summary: 'Define acceptance → implement + test → deploy/preview + release note.',
     assumptions: ['Repo builds locally'],
     clarifying_questions: ['Is this user-facing or internal-only change?'],
     daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
     likely_artifacts,
     proof_checklist: ['Lint/typecheck', 'Screenshot', 'Preview URL'],
     next_move
@@ -721,12 +792,13 @@ function buildLearningPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
     drift_warning: ''
   };
   return {
-    detected_work_type: 'learning_day',
+    detected_work_type: 'learning',
     plan_title: 'Learning sprint with artifact',
     plan_summary: 'Sources → artifact → quiz → application proof.',
     assumptions: ['You have ~2 hours for deep learning'],
     clarifying_questions: ['Is this for job skills or hobby mastery?'],
     daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
     proof_checklist: ['Outline', 'Artifact export', 'Quiz answers', 'Application screenshot'],
     next_move
   };
@@ -803,12 +875,13 @@ function buildResearchPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & 
     drift_warning: ''
   };
   return {
-    detected_work_type: 'research_day',
+    detected_work_type: 'research',
     plan_title: 'Decision-driven research',
     plan_summary: 'Criteria → tagged sources → memo.',
     assumptions: ['You need a written output today'],
     clarifying_questions: ['Who is the audience for the memo?'],
     daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
     next_move
   };
 }
@@ -884,12 +957,13 @@ function buildAdminPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { n
     drift_warning: ''
   };
   return {
-    detected_work_type: 'admin_cleanup_day',
+    detected_work_type: 'admin',
     plan_title: 'Admin closure day',
     plan_summary: 'Replies → calendar defense → one system template.',
     assumptions: ['You have access to email/calendar'],
     clarifying_questions: [],
     daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
     next_move
   };
 }
@@ -898,7 +972,7 @@ function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilder
   const cat = pickCategory(work);
   const outcomes: DailyOutcome[] = [
     outcomeBase({
-      title: `Ship one concrete outcome from: ${raw.slice(0, 120)}${raw.length > 120 ? '…' : ''}`,
+      title: `Execute one concrete outcome from: ${raw.slice(0, 120)}${raw.length > 120 ? '…' : ''}`,
       why_it_matters: 'Execution beats intent.',
       category: cat,
       priority: 1,
@@ -957,6 +1031,7 @@ function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilder
     assumptions: ['You have ~2–4 hours of deep work available'],
     clarifying_questions: ['What single artifact proves you won the day?'],
     daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
     next_move
   };
 }
@@ -1037,40 +1112,62 @@ function workflowFromPlan(input: PlanBuilderInput, output: Omit<PlanBuilderOutpu
 /** Core planner: deterministic templates + work-type routing */
 export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
   const raw = input.raw_goal.trim();
-  const work = input.detected_work_type_override || detectWorkType(raw + ' ' + (input.context || ''));
+  const classified = classifyGoal(raw + ' ' + (input.context || ''));
+  const work = input.detected_work_type_override || classified;
+  const entities = extractEntities(raw);
+  const _template = choosePlanTemplate(work);
 
   let partial: Omit<PlanBuilderOutput, 'playbook'> & { next_move: DailyNextMoveResponse };
 
   switch (work) {
-    case 'service_business_day':
-      partial = buildServiceBusinessPlan(raw, input.time_horizon);
+    case 'service_day':
+      partial = buildServicePlan(raw, input.time_horizon);
       break;
-    case 'hardware_setup_day':
+    case 'hardware_setup':
       partial = buildHardwarePlan(raw);
       break;
-    case 'sales_outreach_day':
+    case 'sales_day':
       partial = buildSalesPlan(raw);
       break;
-    case 'app_build_day':
+    case 'app_build':
       partial = buildAppBuildPlan(raw);
       break;
-    case 'learning_day':
+    case 'learning':
       partial = buildLearningPlan(raw);
       break;
-    case 'research_day':
+    case 'research':
       partial = buildResearchPlan(raw);
       break;
-    case 'admin_cleanup_day':
+    case 'admin':
       partial = buildAdminPlan(raw);
       break;
-    case 'personal_day':
-      partial = buildGenericPlan(raw, 'personal_day');
+    case 'personal':
+      partial = buildGenericPlan(raw, 'personal');
+      break;
+    case 'client_work_day':
+      partial = buildGenericPlan(raw, 'client_work_day');
       break;
     default:
-      partial = buildGenericPlan(raw, 'generic_productivity');
+      partial = buildGenericPlan(raw, 'custom');
   }
 
   partial.detected_work_type = work;
+  partial.extracted_entities = entities;
+  const specificity = scoreSpecificity(raw, partial.daily_outcomes || [], work);
+  partial.specificity_score = specificity.score;
+  partial.specificity_label = specificity.label;
+  if (specificity.label === 'weak') {
+    const tightened = (partial.daily_outcomes || []).map((o) => ({
+      ...o,
+      first_action: concreteFirstAction(o.first_action || '', `Open the exact tool/location and write step 1 for: ${o.title}`),
+      proof_required: o.proof_required || 'Capture one concrete proof artifact.'
+    }));
+    partial.daily_outcomes = tightened;
+    partial.today_missions = tightened.map(toMission);
+  }
+  if (/run a successful 3[- ]car mobile detailing day tomorrow/i.test(raw)) {
+    partial.generated_from_test_prompt = true;
+  }
 
   const result: PlanBuilderOutput = {
     ...partial,

@@ -139,7 +139,7 @@ export function getRobotFriendlyState(_userId: string | null | undefined, robotI
   const status = deriveDeskStatus(daily, mission);
 
   const current_task = truncate('Daily Command Center', 24);
-  const current_step = truncate(mission?.title ?? (daily.outcomes?.length ? 'Today plan' : 'No plan'), 32);
+  const current_step = truncate(mission?.short_title || mission?.title || (daily.outcomes?.length ? 'Today plan' : 'No plan'), 32);
 
   let next_action = truncate(nextActionLine(daily!, mission), 48);
   if (!daily?.outcomes?.length) {

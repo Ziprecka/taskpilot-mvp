@@ -17,9 +17,9 @@ import { trackProductEvent } from '@/lib/productEvents';
 import { getDailyStorageKey, getReportsStorageKey, getUserProgressionStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
 import { DEFAULT_ROBOT_ID, ROBOT_API_KEY_LS, ROBOT_ID_LS, secondsAgoLabel } from '@/lib/robotClientSettings';
-import { buildPlan } from '@/lib/planBuilder';
 import { syncRobotRelevantDailyState } from '@/lib/robotSync';
-import type { DetectedWorkType, PlanBuilderOutput } from '@/types/planBuilder';
+import { TODAY_BUTTON_AUDIT } from '@/lib/buttonAudit';
+import type { PlanBuilderOutput } from '@/types/planBuilder';
 import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyDebrief, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
 
 type DayType = NonNullable<DailyCommandState['selected_day_type']>;
@@ -141,14 +141,11 @@ export default function DailyPage() {
   const [showReward, setShowReward] = useState(false);
   const [rewardData, setRewardData] = useState({ title: '', xp: 0, copy: '', next: '' });
   const [showCompleteWithoutProof, setShowCompleteWithoutProof] = useState<string | null>(null);
-  const [showFocusCompleteModal, setShowFocusCompleteModal] = useState(false);
   const [showCloseDayModal, setShowCloseDayModal] = useState(false);
   const [showCloseWarning, setShowCloseWarning] = useState(false);
   const [copilotMode, setCopilotMode] = useState<'coach' | 'action'>('action');
   const [showCoachHistory, setShowCoachHistory] = useState(false);
   const [showCompletedExpanded, setShowCompletedExpanded] = useState(false);
-  const [showChallenges, setShowChallenges] = useState(false);
-  const [showDoThisModal, setShowDoThisModal] = useState(false);
   const [showAiDetails, setShowAiDetails] = useState(false);
   const [isCoachLoading, setIsCoachLoading] = useState(false);
   const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
@@ -240,17 +237,18 @@ export default function DailyPage() {
 
   function mapWorkTypeToDayType(work: string): DayType {
     switch (work) {
-      case 'service_business_day':
-      case 'sales_outreach_day':
+      case 'service_day':
+      case 'sales_day':
+      case 'client_work_day':
         return 'money';
-      case 'app_build_day':
-      case 'hardware_setup_day':
+      case 'app_build':
+      case 'hardware_setup':
         return 'build';
-      case 'learning_day':
+      case 'learning':
         return 'learning';
-      case 'admin_cleanup_day':
+      case 'admin':
         return 'admin';
-      case 'personal_day':
+      case 'personal':
         return 'personal';
       default:
         return 'custom';
@@ -1153,36 +1151,39 @@ Money: ${debrief.money_score}/100
             : 'reflect';
   const coachRecommendation = state.coach_messages.filter((m) => m.role === 'assistant').slice(-1)[0]?.ai;
   const localRecommendation = useMemo(() => {
+    const activeMission =
+      state.outcomes.find((o) => o.id === state.active_focus_block?.outcome_id) ||
+      state.outcomes.find((o) => o.status === 'active');
     if (state.active_focus_block?.status === 'active') {
       return {
-        move: 'Finish current focus action.',
+        move: activeMission?.title || 'Finish current mission.',
         where: 'Current Mission card',
-        do: state.active_focus_block.current_action || 'Complete one action now.',
-        proof: state.outcomes.find((o) => o.id === state.active_focus_block?.outcome_id)?.proof_required || 'Screenshot or note',
-        timebox: 5,
+        do: state.active_focus_block.current_action || activeMission?.first_action || 'Complete one action now.',
+        proof: activeMission?.proof_required || 'Screenshot or note',
+        timebox: 10,
         avoid: 'Do not context switch.'
       };
     }
-    const planned = [...state.outcomes].filter((o) => o.status === 'planned' || o.status === 'selected').sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0];
-    if (planned && state.plan_next_move_hint) {
-      const h = state.plan_next_move_hint;
+    if (activeMission) {
       return {
-        move: h.move,
-        where: h.where,
-        do: planned.first_action || h.do,
-        proof: h.proof || planned.proof_required || 'One proof item',
-        timebox: h.timebox,
-        avoid: h.avoid
+        move: activeMission.title,
+        where: 'Current Mission card',
+        do: activeMission.first_action || activeMission.title,
+        proof: activeMission.proof_required || 'One proof item',
+        timebox: Math.min(30, Math.max(10, Math.round((activeMission.estimated_minutes || 30) / 2))),
+        avoid: activeMission.risk || 'Avoid context switching.'
       };
     }
+    const planned = [...state.outcomes].filter((o) => o.status === 'planned' || o.status === 'selected').sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0];
     if (planned) {
+      const h = state.plan_next_move_hint;
       return {
-        move: 'Start highest leverage planned outcome.',
-        where: 'Next Up section',
-        do: planned.first_action || planned.title,
+        move: h?.move || planned.title,
+        where: h?.where || 'Next Up section',
+        do: planned.first_action || h?.do || planned.title,
         proof: planned.proof_required || 'One proof item',
-        timebox: 25,
-        avoid: 'Avoid over-planning.'
+        timebox: h?.timebox || 25,
+        avoid: h?.avoid || planned.risk || 'Avoid over-planning.'
       };
     }
     const missingProof = state.outcomes.find((o) => o.status === 'done' && !o.proof_provided);
@@ -1206,25 +1207,6 @@ Money: ${debrief.money_score}/100
         avoid: 'Do not end day open-loop.'
       };
     }
-    const rawGoal = (dailyGoalsInput || state.daily_goals || '').trim();
-    if (rawGoal.length >= 8) {
-      const plan = buildPlan({
-        raw_goal: rawGoal,
-        mode: 'daily_execution',
-        category: 'productivity',
-        time_horizon: 'today',
-        detected_work_type_override: (state.detected_work_type as DetectedWorkType) || null
-      });
-      const nm = plan.next_move;
-      return {
-        move: nm.next_move || 'Plan today.',
-        where: nm.go_here || 'Today page',
-        do: nm.write_make_do || nm.next_action || '',
-        proof: nm.proof_needed || '',
-        timebox: nm.suggested_focus_minutes ?? 10,
-        avoid: nm.avoid || ''
-      };
-    }
     return {
       move: 'Plan today now.',
       where: 'Plan Builder',
@@ -1235,12 +1217,6 @@ Money: ${debrief.money_score}/100
     };
   }, [state, dailyGoalsInput]);
   const executionScore = Math.min(100, ((completedToday * 25) + Math.min(30, focusMinutesToday) + Math.min(20, (state.proof_count_today || 0) * 10)));
-  const challenges = [
-    { id: 'focus', title: 'Complete one 25-minute focus block', reward: 15, done: focusMinutesToday >= 25, action: () => pickBestOutcome() },
-    { id: 'proof', title: 'Log proof before noon', reward: 15, done: (state.proof_count_today || 0) > 0, action: () => state.active_outcome_id ? logProof(state.active_outcome_id, 'Challenge proof note') : pushToast('No active outcome') },
-    { id: 'workflow', title: 'Create one playbook from today', reward: 20, done: state.events.some((e) => e.content.includes('Created playbook')), action: () => state.active_outcome_id ? openWorkflowDraft(state.active_outcome_id) : pushToast('Pick an outcome first') },
-    { id: 'debrief', title: 'Close the day with a debrief', reward: 25, done: Boolean(state.report), action: () => setShowCloseDayModal(true) }
-  ];
 
   function safeAction(label: string, handler?: () => void) {
     if (!handler) {
@@ -1434,7 +1410,6 @@ Money: ${debrief.money_score}/100
                 <div className="flex gap-2">
                   <button className="btn-secondary btn-sm" onClick={safeAction('Plan today', openPlanModal)}>Plan today</button>
                   <button className="btn-ghost btn-sm" onClick={safeAction('Add outcome', () => addOutcome())}>Add outcome</button>
-                  <button className="btn-ghost btn-sm" onClick={safeAction('Improve this page', () => window.dispatchEvent(new CustomEvent('daily-improve-page')))}>Improve this page</button>
                 </div>
               </div>
               {!state.outcomes.length ? (
@@ -1455,11 +1430,24 @@ Money: ${debrief.money_score}/100
                     {activeOutcomeRows.length ? activeOutcomeRows.slice(0, 1).map((outcome) => (
                       <div key={outcome.id} className="rounded-xl border border-amber-400 bg-amber-400/10 p-3">
                         <p className="font-semibold text-white">#{outcome.priority} {outcome.title}</p>
-                        <p className="text-xs text-slate-400">Do now: {outcome.first_action || 'Take first action now.'}</p>
+                        <p className="text-xs text-slate-400">First action: {outcome.first_action || 'Take first action now.'}</p>
+                        <p className="text-xs text-slate-500">Proof: {outcome.proof_required || 'Log proof in app'}</p>
+                        <p className="text-xs text-slate-500">Done when: {outcome.done_when || 'Checklist complete and proof logged.'}</p>
+                        {!!outcome.checklist?.length && (
+                          <ul className="mt-2 list-inside list-disc text-xs text-slate-300">
+                            {outcome.checklist.slice(0, 3).map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        )}
                         <div className="mt-2 flex gap-2">
-                          <button className="btn-primary btn-sm" onClick={() => startFocus(outcome.id)}>Focus</button>
-                          <button className="btn-secondary btn-sm" onClick={() => completeOutcome(outcome.id)}>Done</button>
+                          <button className="btn-primary btn-sm" onClick={() => openProofModal(outcome.id)}>Log proof</button>
+                          <button className="btn-secondary btn-sm" onClick={() => completeOutcome(outcome.id)}>Complete</button>
                           <button className="btn-secondary btn-sm" onClick={() => openBlockedModal(outcome.id)}>Blocked</button>
+                        </div>
+                        <div className="mt-1 flex gap-3 text-xs">
+                          <button className="text-slate-400 hover:text-slate-200" onClick={() => updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null }))}>Pause</button>
+                          <button className="text-slate-400 hover:text-slate-200" onClick={() => openWorkflowDraft(outcome.id)}>Create Playbook</button>
                         </div>
                       </div>
                     )) : (
@@ -1572,8 +1560,18 @@ Money: ${debrief.money_score}/100
               ) : (
                 <div className="space-y-2 text-sm text-slate-300">
                   <p><span className="text-slate-500">Outcome:</span> {activeFocus.title.slice(0, 80)}{activeFocus.title.length > 80 ? '...' : ''}</p>
-                  <p><span className="text-slate-500">Current action:</span> {(activeFocus.current_action || '').split('.').slice(0, 1).join('.').slice(0, 140)}</p>
+                  <p><span className="text-slate-500">First action:</span> {(activeFocus.current_action || '').split('.').slice(0, 1).join('.').slice(0, 140)}</p>
                   <p><span className="text-slate-500">Proof needed:</span> {(state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.proof_required || 'Visible progress note').slice(0, 90)}</p>
+                  {!!state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.done_when && (
+                    <p><span className="text-slate-500">Done when:</span> {state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.done_when}</p>
+                  )}
+                  {!!state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.checklist?.length && (
+                    <ul className="list-inside list-disc text-xs text-slate-300">
+                      {state.outcomes.find((o) => o.id === activeFocus.outcome_id)?.checklist?.slice(0, 3).map((step) => (
+                        <li key={step}>{step}</li>
+                      ))}
+                    </ul>
+                  )}
                   {(activeFocus.title.length > 80 || (activeFocus.current_action || '').length > 140) && (
                     <details className="rounded-lg border border-slate-700 bg-slate-900/40 p-2">
                       <summary className="cursor-pointer text-xs text-slate-400">Details</summary>
@@ -1585,11 +1583,10 @@ Money: ${debrief.money_score}/100
                   <p><span className="text-slate-500">Drift:</span> {activeFocus.drift_score > 5 ? 'High' : 'Stable'}</p>
                   <p><span className="text-slate-500">Checkpoint:</span> {new Date(activeFocus.last_progress_at).toLocaleTimeString()}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Complete action', () => setShowFocusCompleteModal(true))}>Complete action</button>
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeFocus.outcome_id))}>Log proof</button>
+                    <button className="btn-primary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeFocus.outcome_id))}>Log proof</button>
+                    <button className="btn-secondary btn-sm" onClick={safeAction('Complete', () => completeOutcome(activeFocus.outcome_id))}>Complete</button>
                     <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(activeFocus.outcome_id))}>Blocked</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
-                    <button className="btn-ghost btn-sm" onClick={safeAction('End focus', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'complete', ended_at: nowIso() } : null, status: 'planning', active_outcome_id: null })); logEvent('completed_action', 'Focus ended.'); })}>End focus</button>
                     <button className="btn-ghost btn-sm" onClick={safeAction('Create playbook', () => openWorkflowDraft(activeFocus.outcome_id))}>Create playbook</button>
                   </div>
                 </div>
@@ -1630,16 +1627,7 @@ Money: ${debrief.money_score}/100
                 )}
               </div>
               <div className="mb-3 grid gap-2">
-                <button className={`btn-primary btn-sm ${state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'border-emerald-400' : ''}`} onClick={safeAction('Do this', () => {
-                  if (state.outcomes.every((o) => o.status === 'done') && state.outcomes.length) return setShowCloseDayModal(true);
-                  if (activeFocus?.status === 'active') return setShowDoThisModal(true);
-                  if (recommendedOutcome) return startFocus(recommendedOutcome.id);
-                  return openPlanModal();
-                })}>
-                  {state.outcomes.every((o) => o.status === 'done') && state.outcomes.length ? 'Close day' : 'Do this'}
-                </button>
                 <div className="flex flex-wrap gap-2">
-                  <button className="btn-secondary btn-sm" onClick={safeAction('Make smaller', () => void sendCoachMessage('Make it tiny. One 2-5 minute action only.'))}>Make smaller</button>
                   <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(state.active_outcome_id))}>Log proof</button>
                   <button className="btn-ghost btn-sm" onClick={safeAction('I am blocked', () => void sendCoachMessage('I am blocked. Give one unblock action.'))}>I&apos;m blocked</button>
                 </div>
@@ -1666,25 +1654,7 @@ Money: ${debrief.money_score}/100
                 <button className="btn-primary" onClick={safeAction('Send coach message', () => void sendCoachMessage())}>Send</button>
               </div>
             </div>
-            <div className="card mt-4 p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Daily challenges</h3>
-                <button className="btn-ghost btn-sm" onClick={() => setShowChallenges((v) => !v)}>{showChallenges ? 'Hide' : 'Show'}</button>
-              </div>
-              {showChallenges && (
-                <div className="mt-2 space-y-2">
-                  {challenges.map((challenge) => (
-                    <div key={challenge.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-2 text-sm">
-                      <p className="font-semibold">{challenge.title}</p>
-                      <p className="text-xs text-slate-500">Reward: +{challenge.reward} XP</p>
-                      <button className="btn-ghost btn-sm mt-1" disabled={challenge.done} onClick={() => challenge.action()}>
-                        {challenge.done ? 'Completed' : 'Start'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            
           </div>
         </div>
 
@@ -1737,6 +1707,18 @@ Money: ${debrief.money_score}/100
             )}
           </details>
         </div>
+        {process.env.NODE_ENV !== 'production' && (
+          <details className="mt-5 card p-4">
+            <summary className="cursor-pointer text-sm font-bold uppercase tracking-widest text-slate-400">Button Audit (Dev)</summary>
+            <div className="mt-2 space-y-1 text-xs text-slate-300">
+              {TODAY_BUTTON_AUDIT.map((item) => (
+                <p key={`${item.location}-${item.label}`}>
+                  {item.label} · {item.location} · handler {item.handler_exists ? 'yes' : 'no'} · {item.status}
+                </p>
+              ))}
+            </div>
+          </details>
+        )}
 
         {!!state.lessons?.length && (
           <div className="mt-5 card p-5">
@@ -1971,40 +1953,8 @@ Money: ${debrief.money_score}/100
             </div>
           </div>
         )}
-        {showFocusCompleteModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowFocusCompleteModal(false)}>
-            <div className="card w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-xl font-black">Focus action completed</h2>
-              <p className="text-sm text-slate-400">What changed? Capture proof or move the mission forward.</p>
-              <div className="mt-3 flex gap-2">
-                <button className="btn-secondary" onClick={() => { setShowFocusCompleteModal(false); openProofModal(state.active_outcome_id); }}>Log proof</button>
-                <button className="btn-primary" onClick={() => { setShowFocusCompleteModal(false); if (state.active_outcome_id) completeOutcome(state.active_outcome_id); }}>Mark outcome done</button>
-                <button className="btn-ghost" onClick={() => setShowFocusCompleteModal(false)}>Continue focus</button>
-              </div>
-            </div>
-          </div>
-        )}
-        {showDoThisModal && activeFocus?.status === 'active' && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setShowDoThisModal(false)}>
-            <div className="card w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-xl font-black">Do this now</h2>
-              <p className="mt-1 text-sm text-slate-400">Where: {coachRecommendation?.go_here || localRecommendation.where}</p>
-              <p className="mt-1 text-sm text-slate-300">What: {coachRecommendation?.write_make_do || localRecommendation.do}</p>
-              <p className="mt-1 text-sm text-slate-300">Proof: {coachRecommendation?.proof_needed || localRecommendation.proof}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button className="btn-secondary btn-sm" onClick={() => {
-                  updateState((prev) => ({
-                    ...prev,
-                    active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, planned_minutes: 5 } : prev.active_focus_block
-                  }));
-                  pushToast('Timer set to 5 minutes.');
-                }}>Start 5-min timer</button>
-                <button className="btn-secondary btn-sm" onClick={() => { setShowDoThisModal(false); openProofModal(activeFocus.outcome_id); }}>Log proof</button>
-                <button className="btn-primary btn-sm" onClick={() => { setShowDoThisModal(false); if (state.active_outcome_id) completeOutcome(state.active_outcome_id); }}>Mark action done</button>
-              </div>
-            </div>
-          </div>
-        )}
+        
+        
         {playbookLimitModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setPlaybookLimitModalOpen(false)}>
             <div className="card w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>

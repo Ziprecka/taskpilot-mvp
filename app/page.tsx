@@ -10,11 +10,11 @@ export default function HomePage() {
       <section className="mx-auto grid max-w-7xl items-start gap-10 px-6 py-14 md:grid-cols-[1.05fr_.95fr]">
         <div>
           <div className="badge mb-5">Daily Execution System</div>
-          <h1 className="mb-4 max-w-4xl text-5xl font-black leading-tight md:text-7xl">Write your goal. TaskPilot turns it into today&apos;s execution plan.</h1>
-          <p className="mb-7 max-w-2xl text-lg text-slate-300">Plan outcomes, run focus blocks, log proof, and save repeatable playbooks.</p>
+          <h1 className="mb-4 max-w-4xl text-5xl font-black leading-tight md:text-7xl">Finish the day with proof.</h1>
+          <p className="mb-7 max-w-2xl text-lg text-slate-300">Write your goal. TaskPilot turns it into missions, focus blocks, proof checklists, and a daily debrief.</p>
           <div className="mb-4 flex flex-wrap gap-3">
             <Link href="/signup?next=/daily" className="btn-primary">Plan Today</Link>
-            <Link href="/demo" className="btn-secondary">Try the demo</Link>
+            <Link href="/demo" className="btn-secondary">Watch Demo</Link>
             <Link href="/workflows/generate" className="btn-ghost">Create Playbook</Link>
           </div>
           <div className="grid max-w-xl grid-cols-2 gap-2 text-xs text-slate-400 sm:grid-cols-4">
@@ -53,6 +53,17 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+      <section className="mx-auto max-w-7xl px-6 pb-10">
+        <div className="card p-6">
+          <h2 className="mb-3 text-xl font-black">Real-world preview</h2>
+          <p className="text-sm text-slate-300">Goal: <span className="text-amber-200">Run a 3-car detail day</span></p>
+          <div className="mt-3 grid gap-2 md:grid-cols-5 text-sm">
+            {['Prep route', 'Execute jobs', 'Capture proof', 'Send follow-ups', 'Close report'].map((item) => (
+              <div key={item} className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">{item}</div>
+            ))}
+          </div>
+        </div>
+      </section>
       <section className="mx-auto max-w-7xl px-6 pb-14">
         <div className="card card-list p-6">
           <h2 className="mb-4 text-xl font-black">How TaskPilot works</h2>
@@ -74,18 +85,20 @@ export default function HomePage() {
       </section>
       <section className="mx-auto max-w-7xl px-6 pb-10">
         <div className="card p-6">
-          <h2 className="mb-4 text-xl font-black">Built for people who need execution pressure</h2>
-          <div className="grid gap-3 md:grid-cols-2">
+          <h2 className="mb-4 text-xl font-black">Built for real work</h2>
+          <div className="grid gap-3 md:grid-cols-3">
             {[
-              ['Solo operators', 'Too many loose tasks.', 'Turn the day into 3 proof-backed outcomes.'],
-              ['Indie builders', 'Shipping gets delayed by context switching.', 'Run one clear next move until proof is logged.'],
-              ['Freelancers', 'Client work and internal work compete.', 'Prioritize by leverage and close loops faster.'],
-              ['Service owners', 'Operations and growth work collide.', 'Use Today as a queue for highest-impact actions.']
-            ].map(([title, pain, outcome]) => (
+              ['Service days', 'Goal: finish 3 appointments', 'Missions: route/loadout/jobs', 'Proof: before-after + messages'],
+              ['Sales/outreach days', 'Goal: get beta users', 'Missions: list/send/follow-up', 'Proof: sent screenshots + replies'],
+              ['Build days', 'Goal: ship one scoped improvement', 'Missions: scope/build/test/deploy', 'Proof: build output + demo'],
+              ['Hardware setup', 'Goal: bring board online', 'Missions: detect/flash/api', 'Proof: port + serial + API ping'],
+              ['Admin cleanup', 'Goal: clear overdue risk', 'Missions: inbox/calendar/system', 'Proof: cleared queue + schedule']
+            ].map(([title, goal, missions, proof]) => (
               <div key={title} className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
                 <p className="font-semibold text-white">{title}</p>
-                <p className="text-sm text-slate-400">{pain}</p>
-                <p className="mt-1 text-sm text-amber-200">{outcome}</p>
+                <p className="text-sm text-slate-400">{goal}</p>
+                <p className="mt-1 text-sm text-slate-300">{missions}</p>
+                <p className="mt-1 text-sm text-amber-200">{proof}</p>
               </div>
             ))}
           </div>

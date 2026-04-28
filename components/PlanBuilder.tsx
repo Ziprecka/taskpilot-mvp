@@ -7,15 +7,16 @@ import { buildPlan, detectWorkType, workTypeLabel } from '@/lib/planBuilder';
 import type { DailyOutcome } from '@/types/workflow';
 
 const WORK_TYPES: DetectedWorkType[] = [
-  'service_business_day',
-  'sales_outreach_day',
-  'app_build_day',
-  'hardware_setup_day',
-  'research_day',
-  'admin_cleanup_day',
-  'learning_day',
-  'personal_day',
-  'generic_productivity'
+  'service_day',
+  'client_work_day',
+  'sales_day',
+  'hardware_setup',
+  'app_build',
+  'research',
+  'admin',
+  'learning',
+  'personal',
+  'custom'
 ];
 
 const TIME_OPTIONS: { id: PlanTimeHorizon; label: string }[] = [
@@ -89,7 +90,7 @@ export function PlanBuilder({
 
   function handleSavePlaybookClick() {
     if (!preview) return;
-    const wt = ((workOverride || preview.detected_work_type) as DetectedWorkType) || 'generic_productivity';
+    const wt = ((workOverride || preview.detected_work_type) as DetectedWorkType) || 'custom';
     const pb = buildPlan({
       raw_goal: goal,
       mode: 'playbook',
@@ -173,6 +174,13 @@ export function PlanBuilder({
         <button type="button" className="btn-primary btn-sm" onClick={() => runBuild()}>
           Build plan
         </button>
+        <button
+          type="button"
+          className="btn-secondary btn-sm"
+          onClick={() => setGoal('Run a successful 3-car mobile detailing day tomorrow.')}
+        >
+          Run service-day regression test
+        </button>
         <button type="button" className="btn-secondary btn-sm" onClick={() => runBuild({ clearWorkTypeOverride: true })}>
           Re-detect work type &amp; rebuild
         </button>
@@ -231,14 +239,29 @@ export function PlanBuilder({
         </div>
       ) : null}
 
+      {(preview.specificity_label || preview.specificity_score !== undefined) && (
+        <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
+          <p className="font-semibold text-slate-300">
+            Specificity (dev): {preview.specificity_label || 'unknown'}
+            {preview.specificity_score !== undefined ? ` (${preview.specificity_score})` : ''}
+          </p>
+          {preview.specificity_label === 'weak' && (
+            <button type="button" className="btn-secondary btn-sm mt-2" onClick={() => runBuild({ clearWorkTypeOverride: true })}>
+              Make more specific
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="mt-4">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Outcomes</h3>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Missions</h3>
         <div className="mt-2 space-y-2">
-          {preview.daily_outcomes?.map((o) => (
+          {(preview.today_missions || preview.daily_outcomes || []).map((o: any) => (
             <div key={o.id} className="rounded-xl border border-slate-700 bg-slate-950/40 p-3 text-sm">
               <p className="font-semibold text-white">{o.title}</p>
-              <p className="text-xs text-slate-500">First move: {o.first_action}</p>
+              <p className="text-xs text-slate-500">First action: {o.first_action}</p>
               <p className="text-xs text-slate-500">Proof: {o.proof_required}</p>
+              {o.done_when && <p className="text-xs text-slate-500">Done when: {o.done_when}</p>}
               <p className="text-xs text-slate-600">
                 Est {o.estimated_minutes}m · Leverage {o.leverage_score} · Money {o.money_potential || '—'}
               </p>
@@ -246,6 +269,21 @@ export function PlanBuilder({
           ))}
         </div>
       </div>
+
+      {preview.sections?.length ? (
+        <div className="mt-4 space-y-3">
+          {preview.sections.map((section) => (
+            <details key={section.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-2" open>
+              <summary className="cursor-pointer text-xs font-bold uppercase tracking-widest text-slate-500">{section.title}</summary>
+              <ul className="mt-2 list-inside list-disc text-sm text-slate-300">
+                {section.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </details>
+          ))}
+        </div>
+      ) : null}
 
       {preview.schedule_blocks?.length ? (
         <details className="mt-4 open">

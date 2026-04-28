@@ -147,6 +147,7 @@ export interface TaskPilotSessionState {
 export interface DailyOutcome {
   id: string;
   title: string;
+  objective?: string;
   why_it_matters: string;
   category: 'money' | 'build' | 'marketing' | 'learning' | 'admin' | 'health' | 'other';
   priority: 1 | 2 | 3;
@@ -171,6 +172,10 @@ export interface DailyOutcome {
   linked_session_id?: string;
   linked_step_number?: number;
   linked_step_title?: string;
+  checklist?: string[];
+  done_when?: string;
+  risk?: string;
+  short_title?: string;
 }
 
 export interface FocusBlock {
