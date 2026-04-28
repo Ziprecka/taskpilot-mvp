@@ -63,7 +63,7 @@ export function ProofModal(props: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={onClose}>
-      <div className="card w-full max-w-2xl p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="card flex max-h-[92vh] w-[calc(100vw-24px)] max-w-2xl flex-col overflow-hidden p-4 sm:p-5" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl font-black">Log proof</h2>
         <p className="text-sm text-slate-400">Add visible evidence that this outcome moved forward.</p>
         <p className="mt-1 text-xs text-slate-500">
@@ -75,16 +75,18 @@ export function ProofModal(props: {
             <button key={type} className={`btn-secondary btn-sm ${proofType === type ? 'border-amber-400 text-amber-100' : ''}`} onClick={() => setProofType(type)}>{type}</button>
           ))}
         </div>
+        <div className="min-h-0 overflow-y-auto pr-1">
         <label className="mt-3 block rounded-xl border border-dashed border-slate-600 p-4 text-sm text-slate-300">
           Drag/drop or choose file
-          <input className="mt-2 block w-full" type="file" accept="image/png,image/jpeg,image/webp,image/*" capture="environment" onChange={(e) => handleFile(e.target.files?.[0])} />
+          <input className="mt-2 block w-full" type="file" accept="image/*" capture="environment" onChange={(e) => handleFile(e.target.files?.[0])} />
         </label>
         {preview && <img src={preview} alt="proof preview" className="mt-3 max-h-44 rounded-lg border border-slate-700 object-contain" />}
-        <textarea className="input mt-3 min-h-24" placeholder="What did you complete? Paste a link, describe the proof, or add context. You can also paste an image." value={note} onChange={(e) => setNote(e.target.value)} onPaste={onPasteImage} />
+        <textarea className="input mt-3 min-h-28" placeholder="What did you complete? Paste a link, describe the proof, or add context. You can also paste an image." value={note} onChange={(e) => setNote(e.target.value)} onPaste={onPasteImage} />
         {error && <p className="mt-2 text-sm text-amber-200">{error}</p>}
-        <div className="mt-3 flex gap-2">
-          <button className="btn-primary" onClick={save}>Save proof</button>
-          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+        </div>
+        <div className="sticky bottom-0 mt-3 flex gap-2 bg-slate-950/90 pb-[env(safe-area-inset-bottom)] pt-2">
+          <button className="btn-primary h-11 w-full sm:w-auto" onClick={save}>Save proof</button>
+          <button className="btn-ghost h-11 w-full sm:w-auto" onClick={onClose}>Cancel</button>
         </div>
       </div>
     </div>

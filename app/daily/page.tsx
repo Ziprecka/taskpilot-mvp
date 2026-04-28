@@ -155,6 +155,7 @@ export default function DailyPage() {
   const [copilotMode, setCopilotMode] = useState<'action' | 'draft' | 'blocked'>('action');
   const [copilotArtifact, setCopilotArtifact] = useState('');
   const [showCoachHistory, setShowCoachHistory] = useState(false);
+  const [copilotExpanded, setCopilotExpanded] = useState(false);
   const [showCompletedExpanded, setShowCompletedExpanded] = useState(false);
   const [isCoachLoading, setIsCoachLoading] = useState(false);
   const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
@@ -1287,10 +1288,13 @@ Money: ${debrief.money_score}/100
     return handler;
   }
 
+  const copilotLines = (copilotArtifact || `ACTION\n${localRecommendation.do}\n\nMAKE\n${buildMissionDraft(activeMission).split('\n\nMAKE\n')[1]?.split('\n\nPROOF')[0] || 'Use mission checklist template.'}\n\nPROOF\n${localRecommendation.proof}\n\nNEXT\n${localRecommendation.move}`).split('\n');
+  const copilotPreview = copilotLines.slice(0, 6).join('\n');
+
   return (
-    <main>
+    <main className="max-w-full overflow-x-hidden">
       <Nav />
-      <section className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6">
+      <section className="mx-auto max-w-7xl max-w-full overflow-x-hidden px-4 py-5 pb-24 sm:px-6 sm:py-6 sm:pb-6">
         <DailyHeader
           date={state.date}
           status={state.status}
@@ -1324,7 +1328,7 @@ Money: ${debrief.money_score}/100
           onResetDay={() => setShowResetConfirm(true)}
         />
 
-        <div className="mb-4 rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-sm text-slate-300">
+        <div className="mb-4 max-w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-sm text-slate-300">
           {state.status === 'planning' && 'Plan today\'s outcomes.'}
           {state.status === 'focus' && 'You are in execution mode.'}
           {state.status === 'complete' && 'Day closed. Debrief saved.'}
@@ -1366,12 +1370,12 @@ Money: ${debrief.money_score}/100
           </div>
         )}
 
-        <div className="mb-4 flex flex-wrap gap-2 lg:hidden">
+        <div className="mb-4 hidden flex-wrap gap-2 lg:hidden">
           {(['outcomes', 'focus', 'coach', 'timeline', 'report'] as DailyTab[]).map((tab) => (
             <button key={tab} className={`btn-secondary btn-sm ${mobileTab === tab ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setMobileTab(tab)}>{tab[0].toUpperCase() + tab.slice(1)}</button>
           ))}
         </div>
-        <div className="mb-4 grid gap-3">
+        <div className="mb-4 hidden grid gap-3 sm:grid">
           <DailyLoopProgress currentStep={loopStep} />
           <DailyScorecard executionScore={executionScore} focusMinutes={focusMinutesToday} outcomesCompleted={completedToday} outcomesTotal={Math.max(1, state.outcomes.length)} proofLogged={state.proof_count_today || 0} streak={progression.current_streak || dailyStreak} xpToday={state.xp_today || 0} level={progression.level || 1} />
         </div>
@@ -1425,7 +1429,7 @@ Money: ${debrief.money_score}/100
         />
 
         {state.status !== 'complete' && <DailyPlanPreview>
-          <div className={`${mobileTab === 'outcomes' ? 'block' : 'hidden'} lg:block`}>
+          <div className="order-3 block min-w-0 max-w-full xl:order-1">
             <TodayMissionQueue>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Today&apos;s Outcomes</h2>
@@ -1451,9 +1455,9 @@ Money: ${debrief.money_score}/100
                     <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500">Mission Queue</h3>
                     <div className="space-y-1">
                       {compactMissionRows.map((row, idx) => (
-                        <div key={row.id} className={`flex items-center justify-between rounded-lg border px-2 py-2 text-sm ${row.status === 'Active' ? 'border-amber-400 bg-amber-400/10' : row.status === 'Blocked' ? 'border-amber-600/60 bg-amber-500/10' : 'border-slate-700 bg-slate-950/40'}`}>
-                          <p className="truncate pr-2 text-slate-200">{idx + 1}. {row.label}</p>
-                          <div className="flex items-center gap-2">
+                        <div key={row.id} className={`flex min-w-0 items-center justify-between gap-2 rounded-lg border px-2 py-2 text-sm ${row.status === 'Active' ? 'border-amber-400 bg-amber-400/10' : row.status === 'Blocked' ? 'border-amber-600/60 bg-amber-500/10' : 'border-slate-700 bg-slate-950/40'}`}>
+                          <p className="min-w-0 flex-1 break-words pr-2 text-slate-200">{idx + 1}. {row.label}</p>
+                          <div className="flex shrink-0 items-center gap-2">
                             <span className="text-xs text-slate-400">{row.status}{row.hasProof ? ' · Proof' : ''}</span>
                             {row.status !== 'Active' && <button className="btn-ghost btn-sm" onClick={() => startFocus(row.id)}>Start</button>}
                           </div>
@@ -1497,7 +1501,7 @@ Money: ${debrief.money_score}/100
                             <div key={outcome.id} className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2">
                               <p className="text-sm font-semibold text-white">{outcome.title}</p>
                               <p className="text-xs text-emerald-200">Completed {outcome.completed_at ? new Date(outcome.completed_at).toLocaleTimeString() : ''}</p>
-                              <div className="mt-1 flex flex-wrap gap-2">
+                            <div className="mt-1 flex flex-wrap gap-2">
                                 <button className="btn-ghost btn-sm" onClick={() => openProofModal(outcome.id)}>View proof</button>
                                 <button className="btn-ghost btn-sm" onClick={() => openWorkflowDraft(outcome.id)}>Create Playbook</button>
                                 <button className="btn-ghost btn-sm" onClick={() => openLessonModal(outcome.id)}>Save lesson</button>
@@ -1509,9 +1513,9 @@ Money: ${debrief.money_score}/100
                       ) : (
                         <div className="mt-2 space-y-1">
                           {completedRows.map((outcome) => (
-                            <div key={outcome.id} className="flex items-center justify-between rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2 py-1">
-                              <p className="truncate pr-2 text-xs text-slate-200">{outcome.title}</p>
-                              <div className="flex items-center gap-2 text-xs text-slate-400">
+                            <div key={outcome.id} className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2 py-1">
+                              <p className="min-w-0 flex-1 break-words pr-2 text-xs text-slate-200">{outcome.title}</p>
+                              <div className="flex shrink-0 items-center gap-2 text-xs text-slate-400">
                                 <span>{outcome.completed_at ? new Date(outcome.completed_at).toLocaleTimeString() : ''}</span>
                                 <span>Proof {outcome.proof_provided ? 1 : 0}</span>
                                 <button className="btn-ghost btn-sm" onClick={() => openProofModal(outcome.id)}>View</button>
@@ -1527,45 +1531,49 @@ Money: ${debrief.money_score}/100
             </TodayMissionQueue>
           </div>
 
-          <div className={`${mobileTab === 'focus' ? 'block' : 'hidden'} lg:block`}>
+          <div className="order-1 block min-w-0 max-w-full xl:order-2">
             <CurrentMissionPanel>
               {!activeMission ? (
-                <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
+                <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-4 break-words">
                   <p className="font-semibold text-white">No mission selected</p>
                   <p className="mt-1 text-sm text-slate-400">Plan today to create a mission queue.</p>
-                  <button className="btn-primary btn-sm mt-3" onClick={safeAction('Plan today', openPlanModal)}>Plan Today</button>
+                  <button className="btn-primary mt-3 h-11 w-full text-sm" onClick={safeAction('Plan today', openPlanModal)}>Plan Today</button>
                 </div>
               ) : (
-                <div className="space-y-2 text-sm text-slate-300">
-                  <p className="text-lg font-bold text-white">{activeMission.title}</p>
-                  <p><span className="text-slate-500">Objective:</span> {activeMission.objective || activeMission.why_it_matters}</p>
-                  <p><span className="text-slate-500">First action:</span> {(activeFocus?.current_action || activeMission.first_action || '').split('.').slice(0, 1).join('.').slice(0, 180)}</p>
-                  <p><span className="text-slate-500">Proof:</span> {(activeMission.proof_required || 'Visible progress note').slice(0, 120)}</p>
+                <div className="min-w-0 max-w-full space-y-2 break-words text-sm leading-relaxed text-slate-300">
+                  <p className="text-xl font-bold text-white break-words">{activeMission.title}</p>
+                  <p className="whitespace-normal break-words"><span className="text-slate-500">Objective:</span> {activeMission.objective || activeMission.why_it_matters}</p>
+                  <p className="whitespace-normal break-words"><span className="text-slate-500">Do now:</span> {activeFocus?.current_action || activeMission.first_action || ''}</p>
+                  <p className="whitespace-normal break-words"><span className="text-slate-500">Proof:</span> {activeMission.proof_required || 'Visible progress note'}</p>
                   {!!activeMission.done_when && (
-                    <p><span className="text-slate-500">Done when:</span> {activeMission.done_when}</p>
+                    <p className="whitespace-normal break-words"><span className="text-slate-500">Done when:</span> {activeMission.done_when}</p>
                   )}
                   {!!activeMission.checklist?.length && (
-                    <ul className="list-inside list-disc text-xs text-slate-300">
+                    <ul className="list-inside list-disc text-sm text-slate-300 break-words">
                       {activeMission.checklist?.slice(0, 3).map((step) => (
-                        <li key={step}>{step}</li>
+                        <li key={step} className="break-words whitespace-normal">{step}</li>
                       ))}
                     </ul>
                   )}
                   <p><span className="text-slate-500">Timer:</span> {activeFocus?.actual_minutes || 0}m / {activeFocus?.planned_minutes || activeMission.estimated_minutes || 25}m</p>
                   <p><span className="text-slate-500">Status:</span> {activeFocus?.status === 'active' ? 'Focused' : activeMission.status}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button className="btn-primary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeMission.id))}>Log Proof</button>
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Complete', () => completeOutcome(activeMission.id))}>Complete</button>
-                    <button className="btn-secondary btn-sm" onClick={safeAction('Blocked', () => openBlockedModal(activeMission.id))}>Blocked</button>
-                    <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
-                    <button className="btn-ghost btn-sm" onClick={safeAction('Create playbook', () => openWorkflowDraft(activeMission.id))}>Create Playbook</button>
+                  <div className="mt-2 grid grid-cols-1 gap-2">
+                    <button className="btn-primary h-11 w-full" onClick={safeAction('Log proof', () => openProofModal(activeMission.id))}>Log Proof</button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button className="btn-secondary h-11 w-full" onClick={safeAction('Complete', () => completeOutcome(activeMission.id))}>Complete</button>
+                      <button className="btn-secondary h-11 w-full" onClick={safeAction('Blocked', () => openBlockedModal(activeMission.id))}>Blocked</button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
+                      <button className="btn-ghost btn-sm" onClick={safeAction('Create playbook', () => openWorkflowDraft(activeMission.id))}>Create Playbook</button>
+                    </div>
                   </div>
                 </div>
               )}
             </CurrentMissionPanel>
           </div>
 
-          <div className={`${mobileTab === 'coach' ? 'block' : 'hidden'} lg:block`}>
+          <div id="copilot-card" className="order-2 block min-w-0 max-w-full xl:order-3">
             <NextMovePanel>
               <h2 className="mb-1 text-sm font-bold uppercase tracking-widest text-slate-400">Copilot</h2>
               <p className="mb-2 text-xs text-slate-500">Helps you finish the current mission.</p>
@@ -1589,9 +1597,16 @@ Money: ${debrief.money_score}/100
                   if (activeMission) openBlockedModal(activeMission.id);
                 }}>I&apos;m blocked</button>
               </div>
-              <div className="mb-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 whitespace-pre-wrap">
-                {copilotArtifact || `ACTION\n${localRecommendation.do}\n\nMAKE\n${buildMissionDraft(activeMission).split('\n\nMAKE\n')[1]?.split('\n\nPROOF')[0] || 'Use mission checklist template.'}\n\nPROOF\n${localRecommendation.proof}\n\nNEXT\n${localRecommendation.move}`}
+              <div className="mb-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-xs leading-relaxed text-slate-200 whitespace-pre-wrap break-words">
+                {copilotExpanded
+                  ? (copilotArtifact || `ACTION\n${localRecommendation.do}\n\nMAKE\n${buildMissionDraft(activeMission).split('\n\nMAKE\n')[1]?.split('\n\nPROOF')[0] || 'Use mission checklist template.'}\n\nPROOF\n${localRecommendation.proof}\n\nNEXT\n${localRecommendation.move}`)
+                  : copilotPreview}
               </div>
+              {copilotLines.length > 6 && (
+                <button className="btn-ghost btn-sm mb-2 self-start" onClick={() => setCopilotExpanded((v) => !v)}>
+                  {copilotExpanded ? 'Show less' : 'Details'}
+                </button>
+              )}
               <div className="mb-3 flex flex-wrap gap-2">
                 <button className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(copilotArtifact || buildMissionDraft(activeMission))}>Copy draft</button>
                 <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeMission?.id || state.active_outcome_id))}>Log proof</button>
@@ -1614,7 +1629,7 @@ Money: ${debrief.money_score}/100
                   Copilot stays focused on current mission. Open history only when needed.
                 </div>
               )}
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex gap-2 min-w-0">
                 <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask if blocked or unclear..." onKeyDown={(e) => e.key === 'Enter' && void sendCoachMessage()} />
                 <button className="btn-primary" onClick={safeAction('Send coach message', () => void sendCoachMessage())}>Send</button>
               </div>
@@ -1632,6 +1647,17 @@ Money: ${debrief.money_score}/100
               showAllEvents={showAllEvents}
               onToggleAll={() => setShowAllEvents((prev) => !prev)}
             />
+          </div>
+        )}
+
+        {!!activeMission && (
+          <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-700 bg-slate-950/95 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+            <div className="grid grid-cols-4 gap-2">
+              <button className="btn-primary btn-sm h-11" onClick={() => openProofModal(activeMission.id)}>Proof</button>
+              <button className="btn-secondary btn-sm h-11" onClick={() => completeOutcome(activeMission.id)}>Done</button>
+              <button className="btn-secondary btn-sm h-11" onClick={() => openBlockedModal(activeMission.id)}>Blocked</button>
+              <button className="btn-secondary btn-sm h-11" onClick={() => document.getElementById('copilot-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Copilot</button>
+            </div>
           </div>
         )}
 
