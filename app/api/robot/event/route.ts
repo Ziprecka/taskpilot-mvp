@@ -4,23 +4,28 @@ import {
   addRobotCommand,
   addRobotEvent,
   getDailySnapshotForRobot,
-  getRobotState
+  getLastRobotHeartbeat,
+  isRobotOnline,
+  getRobotState,
+  updateRobotState
 } from '@/lib/robotStore';
 import { getDbGuard } from '@/lib/db';
-import { getRobotFriendlyState, truncate, type RobotDeskDisplayStatus } from '@/lib/robotState';
+import { getRobotFriendlyState, toRobotDisplayState, truncate, type RobotDeskDisplayStatus } from '@/lib/robotState';
 import type { RobotCommandType, RobotEvent } from '@/types/robot';
 
 function replyFromSnapshot(robotId: string): {
   message: string;
   status: RobotDeskDisplayStatus;
-  next_action: string;
+  next_move: string;
+  proof_needed: string;
 } {
   const snap = getDailySnapshotForRobot(robotId);
   const f = getRobotFriendlyState(null, robotId, snap);
   return {
-    message: truncate(f.ai_message, 120),
+    message: truncate(f.ai_message, 60),
     status: f.status,
-    next_action: truncate(f.next_action, 48)
+    next_move: truncate(f.next_action, 36),
+    proof_needed: truncate(f.proof_needed, 36)
   };
 }
 
@@ -78,17 +83,19 @@ export async function POST(req: NextRequest) {
   switch (eventType) {
     case 'button_pressed':
       robot_reply = {
-        message: truncate(`Next: ${base.next_action}`, 120),
+        message: 'Check-in received.',
         status: base.status,
-        next_action: base.next_action
+        next_move: base.next_move,
+        proof_needed: base.proof_needed
       };
-      lastCommand = queue('show_status', truncate(base.next_action, 80));
+      lastCommand = queue('show_status', truncate(base.next_move, 80));
       break;
     case 'long_press':
       robot_reply = {
         message: 'Open TaskPilot → mark outcome Blocked. Tell us what stopped you.',
         status: 'blocked',
-        next_action: 'Log blocker note on Daily Command Center.'
+        next_move: 'Log blocker note on Daily Command Center.',
+        proof_needed: base.proof_needed
       };
       lastCommand = queue('blocked_prompt', 'Long press: log blocker in TaskPilot.');
       break;
@@ -96,7 +103,8 @@ export async function POST(req: NextRequest) {
       robot_reply = {
         message: 'Proof needed before done. Capture photo or screenshot.',
         status: 'waiting_for_proof',
-        next_action: 'Upload proof for the active mission.'
+        next_move: 'Upload proof for the active mission.',
+        proof_needed: base.proof_needed
       };
       lastCommand = queue('request_proof', 'Double tap: log proof now.');
       break;
@@ -105,46 +113,57 @@ export async function POST(req: NextRequest) {
       robot_reply = {
         message: truncate(`Check-in: ${brief.next_action}`, 120),
         status: brief.status,
-        next_action: brief.next_action
+        next_move: brief.next_action,
+        proof_needed: brief.proof_needed
       };
       lastCommand = queue('daily_briefing', truncate(brief.ai_message || brief.next_action, 80));
       break;
     }
     case 'blocked':
+      updateRobotState(robotId, { status: 'blocked' });
       robot_reply = {
-        message: 'Blocker logged. Resolve in TaskPilot to continue.',
+        message: 'Blocked noted. Open TaskPilot.',
         status: 'blocked',
-        next_action: 'Clear blocker or edit outcome.'
+        next_move: 'Clear blocker or edit outcome.',
+        proof_needed: base.proof_needed
       };
       lastCommand = queue('blocked_prompt', 'Blocked event received.');
       break;
     case 'proof_request':
       robot_reply = {
-        message: 'Proof reminder: attach evidence for current mission.',
+        message: 'Proof requested.',
         status: 'waiting_for_proof',
-        next_action: 'Save proof text or photo in TaskPilot.'
+        next_move: base.next_move,
+        proof_needed: base.proof_needed
       };
       lastCommand = queue('request_proof', 'Proof request.');
       break;
     case 'voice_command':
       robot_reply = {
-        message: truncate(`Voice: ${base.next_action}`, 120),
+        message: truncate(`Voice: ${base.next_move}`, 120),
         status: base.status,
-        next_action: base.next_action
+        next_move: base.next_move,
+        proof_needed: base.proof_needed
       };
-      lastCommand = queue('speak', truncate(base.next_action, 80));
+      lastCommand = queue('speak', truncate(base.next_move, 80));
       break;
     default:
-      lastCommand = queue('speak', truncate(base.next_action, 80));
+      lastCommand = queue('speak', truncate(base.next_move, 80));
       break;
   }
 
   const state = getRobotState(robotId);
+  const snapshot = getDailySnapshotForRobot(robotId);
+  const displayState = toRobotDisplayState(robotId, snapshot, {
+    online: isRobotOnline(robotId),
+    last_seen_at: getLastRobotHeartbeat(robotId)
+  });
   return NextResponse.json({
     ok: true,
     event_saved: true,
     robot_reply,
     command: lastCommand,
+    state: displayState,
     state_snapshot: state
       ? {
           current_step: state.current_step,

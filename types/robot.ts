@@ -5,13 +5,18 @@ export type RobotStatus =
   | 'drift_detected'
   | 'blocked'
   | 'complete'
+  | 'offline'
   | 'debugging';
 
 export type RobotCommandType =
   | 'speak'
   | 'gesture'
   | 'show_status'
+  | 'show_mission'
+  | 'show_next'
+  | 'show_proof'
   | 'capture_proof'
+  | 'blocked'
   | 'request_proof'
   | 'blocked_prompt'
   | 'daily_briefing'
@@ -47,6 +52,18 @@ export type RobotState = {
   last_progress_minutes_ago: number;
   ai_message: string;
   updated_at: string;
+};
+
+export type RobotDisplayState = {
+  robot_id: string;
+  status: 'idle' | 'focused' | 'waiting_for_proof' | 'blocked' | 'complete' | 'offline';
+  mode: 'status' | 'mission' | 'next' | 'proof';
+  mission: string;
+  next_move: string;
+  proof_needed: string;
+  short_message: string;
+  last_seen_at: string | null;
+  button_hint: string;
 };
 
 export type RobotCommand = {

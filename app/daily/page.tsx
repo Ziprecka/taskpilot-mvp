@@ -153,7 +153,7 @@ export default function DailyPage() {
   const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
   const [betaAdmin, setBetaAdmin] = useState(false);
   const [deskBotMeta, setDeskBotMeta] = useState<{ online?: boolean; last_heartbeat_at?: string | null } | null>(null);
-  const [deskBotMission, setDeskBotMission] = useState<string | null>(null);
+  const [deskBotState, setDeskBotState] = useState<{ mission?: string; next_move?: string; button_hint?: string } | null>(null);
   const [deskBotConfigured, setDeskBotConfigured] = useState(false);
   const [deskBotUiTick, setDeskBotUiTick] = useState(0);
   const [progression, setProgression] = useState<UserProgression>({
@@ -330,9 +330,9 @@ export default function DailyPage() {
         body: JSON.stringify({ robot_id: rid, daily_snapshot: state })
       })
         .then((r) => r.json())
-        .then((data: { meta?: { online?: boolean; last_heartbeat_at?: string | null }; state?: { current_step?: string } }) => {
+        .then((data: { meta?: { online?: boolean; last_heartbeat_at?: string | null }; state?: { mission?: string; next_move?: string; button_hint?: string } }) => {
           if (data?.meta) setDeskBotMeta(data.meta);
-          if (data?.state?.current_step !== undefined) setDeskBotMission(String(data.state.current_step));
+          if (data?.state) setDeskBotState(data.state);
         })
         .catch(() => null);
     }, 2200);
@@ -1273,8 +1273,8 @@ Money: ${debrief.money_score}/100
               ) : (
                 <>
                   DeskBot {deskBotMeta?.online ? 'Online' : 'Offline'} · Last seen {secondsAgoLabel(deskBotMeta?.last_heartbeat_at)}
-                  {deskBotMission
-                    ? ` · ${deskBotMission.length > 36 ? `${deskBotMission.slice(0, 36)}…` : deskBotMission}`
+                  {deskBotState?.mission
+                    ? ` · ${deskBotState.mission.length > 36 ? `${deskBotState.mission.slice(0, 36)}…` : deskBotState.mission}`
                     : ''}
                   <span className="sr-only">{deskBotUiTick}</span>
                 </>
@@ -1292,6 +1292,25 @@ Money: ${debrief.money_score}/100
           {state.status === 'complete' && 'Day closed. Debrief saved.'}
           {state.status === 'blocked' && 'Blocker detected. Resolve before continuing.'}
         </div>
+        <Link
+          href="/settings/robot"
+          className={`mb-4 block rounded-xl border p-3 text-xs transition ${
+            deskBotConfigured && deskBotMeta?.online
+              ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-100'
+              : 'border-slate-700 bg-slate-950/40 text-slate-300'
+          }`}
+        >
+          <p className="font-semibold">
+            {deskBotConfigured
+              ? deskBotMeta?.online
+                ? 'DeskBot showing current mission.'
+                : `DeskBot offline. Last seen ${secondsAgoLabel(deskBotMeta?.last_heartbeat_at)}.`
+              : 'DeskBot not configured. Add robot key in Settings.'}
+          </p>
+          {!!deskBotState?.mission && <p className="mt-1 text-slate-300">Mission: {deskBotState.mission}</p>}
+          {!!deskBotState?.next_move && <p className="mt-1 text-slate-400">Next: {deskBotState.next_move}</p>}
+          <p className="mt-1 text-slate-500">{deskBotState?.button_hint || 'Press = check in'}</p>
+        </Link>
 
         <div className="mb-4 flex flex-wrap gap-2 lg:hidden">
           {(['outcomes', 'focus', 'coach', 'timeline', 'report'] as DailyTab[]).map((tab) => (

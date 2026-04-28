@@ -3,7 +3,14 @@
  */
 
 import type { DailyCommandState, DailyOutcome } from '@/types/workflow';
-import type { RobotState } from '@/types/robot';
+import type { RobotDisplayState, RobotState } from '@/types/robot';
+import {
+  normalizeRobotMission,
+  normalizeRobotNextMove,
+  normalizeRobotProof,
+  normalizeRobotShortMessage,
+  truncateRobotText
+} from '@/lib/robotText';
 
 /** API-facing statuses for Atom / DeskBot UI */
 export type RobotDeskDisplayStatus =
@@ -14,9 +21,7 @@ export type RobotDeskDisplayStatus =
   | 'complete';
 
 export function truncate(s: string, max: number): string {
-  const t = (s ?? '').trim();
-  if (!t) return '';
-  return t.length <= max ? t : `${t.slice(0, Math.max(0, max - 1))}…`;
+  return truncateRobotText(s, max);
 }
 
 function driftLevel(drift: number | undefined): 'low' | 'medium' | 'high' {
@@ -54,6 +59,8 @@ function deriveDeskStatus(state: DailyCommandState, mission: DailyOutcome | null
   if (state.status === 'complete' || (!!state.debrief && outcomes.length > 0 && outcomes.every((o) => o.status === 'done'))) {
     return 'complete';
   }
+  const needsProof = outcomes.some((o) => o.status === 'done' && !o.proof_provided?.trim() && !!o.proof_required?.trim());
+  if (needsProof) return 'waiting_for_proof';
   if (outcomes.some((o) => o.status === 'blocked')) return 'blocked';
   if (state.active_focus_block?.status === 'active') return 'focused';
   if (!outcomes.length) return 'idle';
@@ -87,7 +94,7 @@ function aiLine(status: RobotDeskDisplayStatus, mission: DailyOutcome | null, ne
     case 'blocked':
       return 'Resolve blocker in TaskPilot, then retry focus.';
     case 'focused':
-      return `Focus on: ${truncate(mission?.title ?? 'mission', 40)}`;
+      return `Focus: ${truncate(mission?.title ?? 'mission', 40)}`;
     case 'waiting_for_proof':
       return 'Log proof for current mission before marking done.';
     case 'idle':
@@ -165,6 +172,41 @@ export function getRobotFriendlyState(_userId: string | null | undefined, robotI
     drift_risk,
     last_progress_minutes_ago,
     ai_message
+  };
+}
+
+function chooseMode(status: RobotDisplayState['status']): RobotDisplayState['mode'] {
+  if (status === 'waiting_for_proof') return 'proof';
+  if (status === 'focused' || status === 'blocked') return 'mission';
+  return 'status';
+}
+
+export function toRobotDisplayState(
+  robotId: string,
+  daily: DailyCommandState | null,
+  opts?: { online?: boolean; last_seen_at?: string | null }
+): RobotDisplayState {
+  const friendly = getRobotFriendlyState(null, robotId, daily);
+  const isOffline = opts?.online === false;
+  const status: RobotDisplayState['status'] = isOffline ? 'offline' : (friendly.status as RobotDisplayState['status']);
+  const mission = normalizeRobotMission(friendly.current_step || 'Today mission');
+  const next_move = normalizeRobotNextMove(
+    !daily?.outcomes?.length ? 'Plan today.' : friendly.next_action || 'Continue mission'
+  );
+  const proof_needed = normalizeRobotProof(friendly.proof_needed || 'Log proof in app');
+  const short_message = normalizeRobotShortMessage(
+    isOffline ? 'DeskBot offline. Open app and check heartbeat.' : friendly.ai_message || 'Stay on current mission.'
+  );
+  return {
+    robot_id: robotId,
+    status,
+    mode: chooseMode(status),
+    mission,
+    next_move,
+    proof_needed,
+    short_message,
+    last_seen_at: opts?.last_seen_at ?? null,
+    button_hint: 'Press = check in'
   };
 }
 

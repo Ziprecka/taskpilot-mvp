@@ -3,6 +3,7 @@ import { validateRobotRequest } from '@/lib/robotAuth';
 import { getDbGuard } from '@/lib/db';
 import {
   getDailySnapshotForRobot,
+  getRobotHeartbeatCount,
   getLastRobotHeartbeat,
   isRobotOnline,
   countRobotButtonLikeEvents,
@@ -10,7 +11,7 @@ import {
   setDailySnapshotForRobot,
   updateRobotState
 } from '@/lib/robotStore';
-import { getRobotFriendlyState, toRobotStateRecord } from '@/lib/robotState';
+import { getRobotFriendlyState, toRobotDisplayState, toRobotStateRecord } from '@/lib/robotState';
 import type { DailyCommandState } from '@/types/workflow';
 
 function buildMeta(robotId: string) {
@@ -18,6 +19,7 @@ function buildMeta(robotId: string) {
   const lastEvent = getLastRobotEvent(robotId);
   return {
     last_heartbeat_at: last,
+    heartbeat_count: getRobotHeartbeatCount(robotId),
     online: isRobotOnline(robotId),
     button_event_count: countRobotButtonLikeEvents(robotId),
     last_event_type: lastEvent?.event_type ?? null,
@@ -32,8 +34,11 @@ export async function GET(req: NextRequest) {
   if (!robotId) return NextResponse.json({ ok: false, error: 'Missing robot_id.' }, { status: 400 });
 
   const memoryDaily = getDailySnapshotForRobot(robotId);
+  const lastSeen = getLastRobotHeartbeat(robotId);
+  const online = isRobotOnline(robotId);
   const friendly = getRobotFriendlyState(null, robotId, memoryDaily);
   const state = toRobotStateRecord(friendly);
+  const display = toRobotDisplayState(robotId, memoryDaily, { online, last_seen_at: lastSeen });
   updateRobotState(robotId, state);
 
   const guard = getDbGuard();
@@ -54,7 +59,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ ok: true, state, meta: buildMeta(robotId) });
+  return NextResponse.json({ ok: true, state: display, raw_state: state, meta: buildMeta(robotId) });
 }
 
 export async function POST(req: NextRequest) {
@@ -69,9 +74,12 @@ export async function POST(req: NextRequest) {
   }
 
   const memoryDaily = getDailySnapshotForRobot(robotId);
+  const lastSeen = getLastRobotHeartbeat(robotId);
+  const online = isRobotOnline(robotId);
   const friendly = getRobotFriendlyState(null, robotId, memoryDaily);
   const computed = toRobotStateRecord(friendly);
   const state = updateRobotState(robotId, computed);
+  const display = toRobotDisplayState(robotId, memoryDaily, { online, last_seen_at: lastSeen });
 
   const guard = getDbGuard();
   if (guard.ok) {
@@ -90,5 +98,5 @@ export async function POST(req: NextRequest) {
       updated_at: state.updated_at
     });
   }
-  return NextResponse.json({ ok: true, state, meta: buildMeta(robotId) });
+  return NextResponse.json({ ok: true, state: display, raw_state: state, meta: buildMeta(robotId) });
 }

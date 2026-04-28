@@ -5,6 +5,7 @@ const robots = new Map<string, RobotRegistration>();
 const states = new Map<string, RobotState>();
 const dailySnapshots = new Map<string, DailyCommandState>();
 const robotHeartbeats = new Map<string, string>();
+const robotHeartbeatCounts = new Map<string, number>();
 const events: RobotEvent[] = [];
 const commands: RobotCommand[] = [];
 let lastHeartbeatAt: string | null = null;
@@ -100,11 +101,18 @@ export function acknowledgeRobotCommand(commandId: string, status: RobotCommand[
 export function markHeartbeat(robotId?: string) {
   const t = new Date().toISOString();
   lastHeartbeatAt = t;
-  if (robotId) robotHeartbeats.set(robotId, t);
+  if (robotId) {
+    robotHeartbeats.set(robotId, t);
+    robotHeartbeatCounts.set(robotId, (robotHeartbeatCounts.get(robotId) ?? 0) + 1);
+  }
 }
 
 export function getLastRobotHeartbeat(robotId: string): string | null {
   return robotHeartbeats.get(robotId) ?? null;
+}
+
+export function getRobotHeartbeatCount(robotId: string): number {
+  return robotHeartbeatCounts.get(robotId) ?? 0;
 }
 
 export function isRobotOnline(robotId: string): boolean {

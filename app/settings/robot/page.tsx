@@ -12,6 +12,7 @@ import {
 
 type RobotMeta = {
   last_heartbeat_at?: string | null;
+  heartbeat_count?: number;
   online?: boolean;
   button_event_count?: number;
   last_event_type?: string | null;
@@ -91,7 +92,7 @@ export default function RobotSettingsPage() {
         <div className="badge mb-2">DeskBot</div>
         <h1 className="mb-2 text-3xl font-black">Atom S3R DeskBot</h1>
         <p className="mb-6 max-w-2xl text-sm text-slate-400">
-          Physical companion for Daily Command Center. Save your robot API key once — TaskPilot syncs Daily state when this browser is open.
+          The Atom S3R is a physical display for your current TaskPilot mission.
         </p>
 
         <div className="card mb-5 p-5">
@@ -138,10 +139,10 @@ export default function RobotSettingsPage() {
               <span className="text-slate-500">Current task:</span> {String(rstate?.current_task ?? '—')}
             </p>
             <p className="md:col-span-2">
-              <span className="text-slate-500">Current mission:</span> {String(rstate?.current_step ?? '—')}
+              <span className="text-slate-500">Current mission:</span> {String(rstate?.mission ?? '—')}
             </p>
             <p className="md:col-span-2">
-              <span className="text-slate-500">Next action:</span> {String(rstate?.next_action ?? '—')}
+              <span className="text-slate-500">Next move:</span> {String(rstate?.next_move ?? '—')}
             </p>
             <p className="md:col-span-2">
               <span className="text-slate-500">Proof:</span> {String(rstate?.proof_needed ?? '—')}
@@ -150,8 +151,11 @@ export default function RobotSettingsPage() {
               <span className="text-slate-500">Last event:</span> {meta?.last_event_type ?? '—'} · {secondsAgoLabel(meta?.last_event_at)}
             </p>
             <p>
-              <span className="text-slate-500">Button / events:</span> {meta?.button_event_count ?? 0}{' '}
+              <span className="text-slate-500">Heartbeat count:</span> {meta?.heartbeat_count ?? 0}{' '}
               <span className="sr-only">{tick}</span>
+            </p>
+            <p>
+              <span className="text-slate-500">Button events:</span> {meta?.button_event_count ?? 0}
             </p>
           </div>
           <p className="mt-3 text-xs text-slate-500">
@@ -161,10 +165,10 @@ export default function RobotSettingsPage() {
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="card p-5">
-            <h3 className="mb-2 font-semibold text-white">Hardware tests</h3>
+            <h3 className="mb-2 font-semibold text-white">Robot controls</h3>
             <div className="flex flex-wrap gap-2">
               <button type="button" className="btn-secondary btn-sm" onClick={() => call('/api/robot/heartbeat', 'POST', { robot_id: rid, status: 'idle' })}>
-                Test heartbeat
+                Send test command
               </button>
               <button type="button" className="btn-secondary btn-sm" onClick={() => void fetchStatePreview()}>
                 Fetch state
@@ -172,9 +176,9 @@ export default function RobotSettingsPage() {
               <button
                 type="button"
                 className="btn-secondary btn-sm"
-                onClick={() => call('/api/robot/checkin', 'POST', { robot_id: rid, session_id: 'daily' })}
+                onClick={() => call('/api/robot/event', 'POST', { robot_id: rid, event_type: 'button_pressed', content: 'Simulated check-in', metadata: {} })}
               >
-                Send check-in command
+                Simulate check-in
               </button>
             </div>
           </div>
@@ -207,7 +211,7 @@ export default function RobotSettingsPage() {
                   setOutput(JSON.stringify(data, null, 2));
                 }}
               >
-                Pending command (GET)
+                Pending command
               </button>
             </div>
           </div>
@@ -222,11 +226,26 @@ export default function RobotSettingsPage() {
             <button type="button" className="btn-ghost btn-sm" onClick={() => call('/api/robot/command', 'POST', { robot_id: rid, type: 'show_status' })}>
               show_status
             </button>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => call('/api/robot/command', 'POST', { robot_id: rid, type: 'show_mission' })}>
+              show_mission
+            </button>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => call('/api/robot/command', 'POST', { robot_id: rid, type: 'show_next' })}>
+              show_next
+            </button>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => call('/api/robot/command', 'POST', { robot_id: rid, type: 'show_proof' })}>
+              show_proof
+            </button>
             <button type="button" className="btn-ghost btn-sm" onClick={() => call('/api/robot/command', 'POST', { robot_id: rid, type: 'request_proof' })}>
               request_proof
             </button>
             <button type="button" className="btn-ghost btn-sm" onClick={() => call('/api/robot/command', 'POST', { robot_id: rid, type: 'blocked_prompt' })}>
               blocked_prompt
+            </button>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => call('/api/robot/command', 'POST', { robot_id: rid, type: 'check_in' })}>
+              check_in
+            </button>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => call('/api/robot/command', 'POST', { robot_id: rid, type: 'blocked' })}>
+              blocked
             </button>
             <button type="button" className="btn-ghost btn-sm" onClick={() => call('/api/robot/command', 'POST', { robot_id: rid, type: 'daily_briefing' })}>
               daily_briefing

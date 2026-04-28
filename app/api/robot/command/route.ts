@@ -10,10 +10,18 @@ function defaultCommandMessage(type: RobotCommandType): string {
       return 'DeskBot update.';
     case 'show_status':
       return 'Show status on display.';
+    case 'show_mission':
+      return 'Show current mission.';
+    case 'show_next':
+      return 'Show next move.';
+    case 'show_proof':
+      return 'Show proof needed.';
     case 'request_proof':
       return 'Log proof for current mission.';
     case 'blocked_prompt':
       return 'What is blocking you? Fix in TaskPilot.';
+    case 'blocked':
+      return 'Blocked noted. Open TaskPilot.';
     case 'daily_briefing':
       return 'Daily briefing: open TaskPilot Daily.';
     case 'capture_proof':
