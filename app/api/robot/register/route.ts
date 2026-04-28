@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
   });
   const guard = getDbGuard();
   if (guard.ok) {
+    const fallbackUser = process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || 'local-dev-user';
     await guard.supabase.from('robot_devices').upsert({
+      user_id: fallbackUser,
       robot_id: robot.robot_id,
       name: robot.name,
       device_type: robot.device_type,

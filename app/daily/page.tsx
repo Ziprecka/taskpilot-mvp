@@ -18,6 +18,7 @@ import { getDailyStorageKey, getReportsStorageKey, getUserProgressionStorageKey 
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
 import { DEFAULT_ROBOT_ID, ROBOT_API_KEY_LS, ROBOT_ID_LS, secondsAgoLabel } from '@/lib/robotClientSettings';
 import { buildPlan } from '@/lib/planBuilder';
+import { syncRobotRelevantDailyState } from '@/lib/robotSync';
 import type { DetectedWorkType, PlanBuilderOutput } from '@/types/planBuilder';
 import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyDebrief, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
 
@@ -156,6 +157,7 @@ export default function DailyPage() {
   const [deskBotState, setDeskBotState] = useState<{ mission?: string; next_move?: string; button_hint?: string } | null>(null);
   const [deskBotConfigured, setDeskBotConfigured] = useState(false);
   const [deskBotUiTick, setDeskBotUiTick] = useState(0);
+  const [deskBotSyncStatus, setDeskBotSyncStatus] = useState<'synced' | 'waiting' | 'fallback' | 'error'>('waiting');
   const [progression, setProgression] = useState<UserProgression>({
     total_xp: 0,
     level: 1,
@@ -322,6 +324,12 @@ export default function DailyPage() {
     if (typeof window === 'undefined') return;
     const key = localStorage.getItem(ROBOT_API_KEY_LS);
     const rid = localStorage.getItem(ROBOT_ID_LS) || DEFAULT_ROBOT_ID;
+    setDeskBotSyncStatus('waiting');
+    void syncRobotRelevantDailyState(null, state, rid).then((res) => {
+      if (!res.ok) return setDeskBotSyncStatus('error');
+      const source = String((res.data as { state?: { source?: string } })?.state?.source || '');
+      setDeskBotSyncStatus(source === 'fallback' ? 'fallback' : 'synced');
+    });
     if (!key) return;
     const timeout = window.setTimeout(() => {
       void fetch('/api/robot/state', {
@@ -330,11 +338,13 @@ export default function DailyPage() {
         body: JSON.stringify({ robot_id: rid, daily_snapshot: state })
       })
         .then((r) => r.json())
-        .then((data: { meta?: { online?: boolean; last_heartbeat_at?: string | null }; state?: { mission?: string; next_move?: string; button_hint?: string } }) => {
+        .then((data: { meta?: { online?: boolean; last_heartbeat_at?: string | null }; state?: { mission?: string; next_move?: string; button_hint?: string; source?: string } }) => {
           if (data?.meta) setDeskBotMeta(data.meta);
           if (data?.state) setDeskBotState(data.state);
+          const source = String(data?.state?.source || '');
+          setDeskBotSyncStatus(source === 'fallback' ? 'fallback' : 'waiting');
         })
-        .catch(() => null);
+        .catch(() => setDeskBotSyncStatus('error'));
     }, 2200);
     return () => clearTimeout(timeout);
   }, [state]);
@@ -1309,6 +1319,16 @@ Money: ${debrief.money_score}/100
           </p>
           {!!deskBotState?.mission && <p className="mt-1 text-slate-300">Mission: {deskBotState.mission}</p>}
           {!!deskBotState?.next_move && <p className="mt-1 text-slate-400">Next: {deskBotState.next_move}</p>}
+          <p className="mt-1 text-slate-400">
+            DeskBot State:{' '}
+            {deskBotSyncStatus === 'synced' && 'Synced to current mission'}
+            {deskBotSyncStatus === 'waiting' && 'Waiting for next poll'}
+            {deskBotSyncStatus === 'fallback' && 'Fallback/no mission'}
+            {deskBotSyncStatus === 'error' && 'Sync error'}
+          </p>
+          {deskBotSyncStatus === 'fallback' && (
+            <p className="mt-1 text-amber-300">Robot API cannot see the active Daily mission yet.</p>
+          )}
           <p className="mt-1 text-slate-500">{deskBotState?.button_hint || 'Press = check in'}</p>
         </Link>
 

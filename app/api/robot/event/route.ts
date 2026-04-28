@@ -12,6 +12,7 @@ import {
 import { getDbGuard } from '@/lib/db';
 import { getRobotFriendlyState, toRobotDisplayState, truncate, type RobotDeskDisplayStatus } from '@/lib/robotState';
 import type { RobotCommandType, RobotEvent } from '@/types/robot';
+import { normalizeRobotMission, normalizeRobotNextMove, normalizeRobotProof } from '@/lib/robotText';
 
 function replyFromSnapshot(robotId: string): {
   message: string;
@@ -158,12 +159,19 @@ export async function POST(req: NextRequest) {
     online: isRobotOnline(robotId),
     last_seen_at: getLastRobotHeartbeat(robotId)
   });
+  const compatState = {
+    ...displayState,
+    current_task: 'Today',
+    current_step: normalizeRobotMission(displayState.mission),
+    next_action: normalizeRobotNextMove(displayState.next_move),
+    proof_needed: normalizeRobotProof(displayState.proof_needed)
+  };
   return NextResponse.json({
     ok: true,
     event_saved: true,
     robot_reply,
     command: lastCommand,
-    state: displayState,
+    state: compatState,
     state_snapshot: state
       ? {
           current_step: state.current_step,

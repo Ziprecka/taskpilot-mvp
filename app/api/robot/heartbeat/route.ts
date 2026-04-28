@@ -12,7 +12,9 @@ export async function POST(req: NextRequest) {
   updateRobotState(body.robot_id, { status: body.status ?? 'idle' });
   const guard = getDbGuard();
   if (guard.ok) {
+    const fallbackUser = process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || 'local-dev-user';
     await guard.supabase.from('robot_devices').upsert({
+      user_id: fallbackUser,
       robot_id: body.robot_id,
       name: body.robot_id,
       device_type: 'custom',

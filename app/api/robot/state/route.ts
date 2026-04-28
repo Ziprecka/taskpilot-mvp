@@ -13,6 +13,15 @@ import {
 } from '@/lib/robotStore';
 import { getRobotFriendlyState, toRobotDisplayState, toRobotStateRecord } from '@/lib/robotState';
 import type { DailyCommandState } from '@/types/workflow';
+import { normalizeRobotMission, normalizeRobotNextMove, normalizeRobotProof, normalizeRobotShortMessage } from '@/lib/robotText';
+
+/**
+ * PowerShell test:
+ * Invoke-RestMethod `
+ *   -Uri "https://taskpilot.live/api/robot/state?robot_id=atom-s3r-001" `
+ *   -Method GET `
+ *   -Headers @{ "x-taskpilot-robot-key" = "KEY" }
+ */
 
 function buildMeta(robotId: string) {
   const last = getLastRobotHeartbeat(robotId);
@@ -27,18 +36,234 @@ function buildMeta(robotId: string) {
   };
 }
 
+type RobotSource =
+  | 'active_focus'
+  | 'active_outcome'
+  | 'planned_outcome'
+  | 'proof_needed'
+  | 'workflow_step'
+  | 'fallback';
+
+async function resolveRobotOwnerUserId(robotId: string): Promise<string | null> {
+  const guard = getDbGuard();
+  if (!guard.ok) return process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || null;
+
+  const device = await guard.supabase.from('robot_devices').select('user_id').eq('robot_id', robotId).maybeSingle();
+  if (device.data?.user_id) return String(device.data.user_id);
+
+  const fallbackUser = process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID;
+  if (fallbackUser) {
+    await guard.supabase.from('robot_devices').upsert(
+      {
+        user_id: fallbackUser,
+        robot_id: robotId,
+        name: robotId,
+        device_type: 'custom',
+        capabilities: {},
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: 'robot_id' }
+    );
+    return fallbackUser;
+  }
+
+  const betaEmails = (process.env.TASKPILOT_BETA_ADMIN_EMAILS || '')
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean);
+  if (!betaEmails.length) return null;
+
+  const prof = await guard.supabase.from('profiles').select('id,email').limit(200);
+  const matched = (prof.data || []).find((p: { email?: string | null }) =>
+    betaEmails.includes(String(p.email || '').toLowerCase())
+  );
+  const ownerId = (matched as { id?: string } | undefined)?.id || null;
+  if (ownerId) {
+    await guard.supabase.from('robot_devices').upsert(
+      {
+        user_id: ownerId,
+        robot_id: robotId,
+        name: robotId,
+        device_type: 'custom',
+        capabilities: {},
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: 'robot_id' }
+    );
+  }
+  return ownerId;
+}
+
+async function getDailyFromDbForOwner(ownerUserId: string): Promise<{ daily: DailyCommandState | null; source: RobotSource }> {
+  const guard = getDbGuard();
+  if (!guard.ok) return { daily: null, source: 'fallback' };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const [focusRes, outcomesRes, reportRes, workflowRes] = await Promise.all([
+    guard.supabase
+      .from('daily_focus_blocks')
+      .select('*')
+      .eq('user_id', ownerUserId)
+      .eq('status', 'active')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    guard.supabase
+      .from('daily_outcomes')
+      .select('*')
+      .eq('user_id', ownerUserId)
+      .eq('date', today)
+      .order('priority', { ascending: true }),
+    guard.supabase
+      .from('daily_reports')
+      .select('*')
+      .eq('user_id', ownerUserId)
+      .eq('date', today)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    guard.supabase
+      .from('workflow_sessions')
+      .select('*')
+      .eq('user_id', ownerUserId)
+      .eq('status', 'active')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  ]);
+
+  const outcomes = (outcomesRes.data || []) as Array<Record<string, unknown>>;
+  const activeFocus = focusRes.data as Record<string, unknown> | null;
+  const report = reportRes.data as Record<string, unknown> | null;
+
+  let source: RobotSource = 'fallback';
+  if (activeFocus) source = 'active_focus';
+  else if (outcomes.some((o) => o.status === 'active')) source = 'active_outcome';
+  else if (outcomes.some((o) => o.status === 'planned' || o.status === 'selected')) source = 'planned_outcome';
+  else if (outcomes.some((o) => o.status === 'done' && !String(o.proof_provided || '').trim())) source = 'proof_needed';
+  else if (workflowRes.data) source = 'workflow_step';
+
+  if (!outcomes.length && !activeFocus && !workflowRes.data) return { daily: null, source: 'fallback' };
+
+  const mappedOutcomes = outcomes.map((o) => ({
+    id: String(o.id || crypto.randomUUID()),
+    title: String(o.title || 'Outcome'),
+    why_it_matters: String(o.why_it_matters || ''),
+    category: (o.category as DailyCommandState['outcomes'][number]['category']) || 'other',
+    priority: (o.priority as 1 | 2 | 3) || 1,
+    status: (o.status as DailyCommandState['outcomes'][number]['status']) || 'planned',
+    estimated_minutes: Number(o.estimated_minutes || 25),
+    actual_minutes: Number(o.actual_minutes || 0),
+    proof_required: String(o.proof_required || ''),
+    proof_provided: String(o.proof_provided || ''),
+    first_action: String(o.first_action || ''),
+    created_at: String(o.created_at || new Date().toISOString()),
+    updated_at: String(o.updated_at || new Date().toISOString()),
+    completed_at: o.completed_at ? String(o.completed_at) : null
+  }));
+
+  const daily: DailyCommandState = {
+    date: today,
+    status: report ? 'complete' : 'planning',
+    daily_goals: '',
+    selected_day_type: null,
+    custom_context: '',
+    outcomes: mappedOutcomes as DailyCommandState['outcomes'],
+    active_outcome_id:
+      (activeFocus?.outcome_id as string | undefined) ||
+      (mappedOutcomes.find((o) => o.status === 'active')?.id ?? null),
+    active_focus_block: activeFocus
+      ? {
+          id: String(activeFocus.id || crypto.randomUUID()),
+          outcome_id: String(activeFocus.outcome_id || ''),
+          title: String(activeFocus.title || ''),
+          status: 'active',
+          started_at: String(activeFocus.started_at || new Date().toISOString()),
+          ended_at: activeFocus.ended_at ? String(activeFocus.ended_at) : null,
+          planned_minutes: Number(activeFocus.planned_minutes || 25),
+          actual_minutes: Number(activeFocus.actual_minutes || 0),
+          current_action: String(activeFocus.current_action || ''),
+          blocker: String(activeFocus.blocker || ''),
+          drift_score: Number(activeFocus.drift_score || 0),
+          last_progress_at: String(activeFocus.last_progress_at || new Date().toISOString())
+        }
+      : null,
+    events: [],
+    coach_messages: [],
+    report: null,
+    debrief: report ? ({} as DailyCommandState['debrief']) : null,
+    xp_today: 0,
+    proof_count_today: mappedOutcomes.filter((o) => !!o.proof_provided).length,
+    lessons: [],
+    last_saved_at: new Date().toISOString()
+  };
+
+  // If no daily but has workflow, use workflow step as emergency short mission.
+  if (!mappedOutcomes.length && workflowRes.data) {
+    const w = workflowRes.data as Record<string, unknown>;
+    daily.outcomes = [
+      {
+        id: String(w.id || crypto.randomUUID()),
+        title: String(w.ai_next_action || 'Continue workflow step'),
+        why_it_matters: '',
+        category: 'build',
+        priority: 1,
+        status: 'planned',
+        estimated_minutes: 20,
+        actual_minutes: 0,
+        proof_required: 'Log proof in app',
+        proof_provided: '',
+        first_action: String(w.ai_next_action || 'Continue workflow step'),
+        created_at: String(w.updated_at || new Date().toISOString()),
+        updated_at: String(w.updated_at || new Date().toISOString()),
+        completed_at: null
+      }
+    ];
+  }
+
+  return { daily, source };
+}
+
+function addCompatFields(
+  state: ReturnType<typeof toRobotDisplayState>,
+  source: RobotSource,
+  ownerUserId: string | null
+) {
+  const mission = normalizeRobotMission(state.mission || 'No mission yet');
+  const next = normalizeRobotNextMove(state.next_move || 'Open Today');
+  const proof = normalizeRobotProof(state.proof_needed || 'Create plan');
+  return {
+    ...state,
+    mission,
+    next_move: next,
+    proof_needed: proof,
+    short_message: normalizeRobotShortMessage(state.short_message || 'Stay on current mission.'),
+    current_task: 'Today',
+    current_step: mission,
+    next_action: next,
+    source,
+    owner_user_id: ownerUserId,
+    last_updated: new Date().toISOString()
+  };
+}
+
 export async function GET(req: NextRequest) {
   const auth = validateRobotRequest(req);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: 401 });
   const robotId = req.nextUrl.searchParams.get('robot_id');
   if (!robotId) return NextResponse.json({ ok: false, error: 'Missing robot_id.' }, { status: 400 });
 
+  const ownerUserId = await resolveRobotOwnerUserId(robotId);
   const memoryDaily = getDailySnapshotForRobot(robotId);
+  const dbResolved = ownerUserId ? await getDailyFromDbForOwner(ownerUserId) : { daily: null, source: 'fallback' as const };
+  const chosenDaily = dbResolved.daily || memoryDaily;
+  const source = dbResolved.daily ? dbResolved.source : memoryDaily ? 'active_focus' : 'fallback';
   const lastSeen = getLastRobotHeartbeat(robotId);
   const online = isRobotOnline(robotId);
-  const friendly = getRobotFriendlyState(null, robotId, memoryDaily);
+  const friendly = getRobotFriendlyState(ownerUserId, robotId, chosenDaily);
   const state = toRobotStateRecord(friendly);
-  const display = toRobotDisplayState(robotId, memoryDaily, { online, last_seen_at: lastSeen });
+  const display = toRobotDisplayState(robotId, chosenDaily, { online, last_seen_at: lastSeen });
+  const compat = addCompatFields(display, source, ownerUserId);
   updateRobotState(robotId, state);
 
   const guard = getDbGuard();
@@ -59,7 +284,13 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ ok: true, state: display, raw_state: state, meta: buildMeta(robotId) });
+  return NextResponse.json({
+    ok: true,
+    state: compat,
+    raw_state: state,
+    meta: buildMeta(robotId),
+    warning: source === 'fallback' ? 'Robot API cannot see the active Daily mission yet.' : null
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -73,17 +304,20 @@ export async function POST(req: NextRequest) {
     setDailySnapshotForRobot(robotId, body.daily_snapshot as DailyCommandState);
   }
 
+  const ownerUserId = await resolveRobotOwnerUserId(robotId);
   const memoryDaily = getDailySnapshotForRobot(robotId);
   const lastSeen = getLastRobotHeartbeat(robotId);
   const online = isRobotOnline(robotId);
-  const friendly = getRobotFriendlyState(null, robotId, memoryDaily);
+  const friendly = getRobotFriendlyState(ownerUserId, robotId, memoryDaily);
   const computed = toRobotStateRecord(friendly);
   const state = updateRobotState(robotId, computed);
   const display = toRobotDisplayState(robotId, memoryDaily, { online, last_seen_at: lastSeen });
+  const compat = addCompatFields(display, memoryDaily ? 'active_focus' : 'fallback', ownerUserId);
 
   const guard = getDbGuard();
   if (guard.ok) {
     await guard.supabase.from('robot_states').upsert({
+      user_id: ownerUserId || process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || 'local-dev-user',
       robot_id: state.robot_id,
       status: state.status,
       active_session_id: state.active_session_id,
@@ -98,5 +332,5 @@ export async function POST(req: NextRequest) {
       updated_at: state.updated_at
     });
   }
-  return NextResponse.json({ ok: true, state: display, raw_state: state, meta: buildMeta(robotId) });
+  return NextResponse.json({ ok: true, state: compat, raw_state: state, meta: buildMeta(robotId) });
 }

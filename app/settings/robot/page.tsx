@@ -19,6 +19,18 @@ type RobotMeta = {
   last_event_at?: string | null;
 };
 
+type RobotStateView = {
+  status?: string;
+  current_task?: string;
+  mission?: string;
+  next_move?: string;
+  proof_needed?: string;
+  source?: string;
+  owner_user_id?: string | null;
+  last_updated?: string;
+  short_message?: string;
+};
+
 export default function RobotSettingsPage() {
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
   const [dbStatus, setDbStatus] = useState<Record<string, unknown> | null>(null);
@@ -26,7 +38,7 @@ export default function RobotSettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [robotId, setRobotId] = useState(DEFAULT_ROBOT_ID);
   const [baseUrl, setBaseUrl] = useState('https://taskpilot.live');
-  const [stateResp, setStateResp] = useState<{ state?: Record<string, unknown>; meta?: RobotMeta } | null>(null);
+  const [stateResp, setStateResp] = useState<{ state?: RobotStateView; meta?: RobotMeta; warning?: string | null } | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -50,8 +62,8 @@ export default function RobotSettingsPage() {
     const res = await fetch(`/api/robot/state?robot_id=${encodeURIComponent(robotId.trim() || DEFAULT_ROBOT_ID)}`, {
       headers: { 'x-taskpilot-robot-key': apiKey.trim() }
     });
-    const data = await res.json();
-    setStateResp(data.ok ? { state: data.state, meta: data.meta } : null);
+    const data = await res.json() as { ok?: boolean; state?: RobotStateView; meta?: RobotMeta; warning?: string | null };
+    setStateResp(data.ok ? { state: data.state, meta: data.meta, warning: data.warning } : null);
     setOutput(JSON.stringify(data, null, 2));
   }, [apiKey, robotId]);
 
@@ -159,8 +171,26 @@ export default function RobotSettingsPage() {
             </p>
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Robot instruction: <span className="text-slate-300">{String(rstate?.ai_message ?? '—')}</span>
+            Robot instruction: <span className="text-slate-300">{String(rstate?.short_message ?? '—')}</span>
           </p>
+        </div>
+
+        <div className="card mb-5 p-5">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Live State Sent to Atom</h2>
+            <button type="button" className="btn-secondary btn-sm" onClick={() => void fetchStatePreview()}>
+              Refresh state
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">Owner user_id: {rstate?.owner_user_id || 'unknown'}</p>
+          <p className="text-xs text-slate-400">Source: {rstate?.source || 'fallback'}</p>
+          <p className="text-xs text-slate-400">Last updated: {rstate?.last_updated || '—'}</p>
+          {rstate?.source === 'fallback' && (
+            <p className="mt-2 text-xs text-amber-300">Warning: source is fallback. Robot may show No mission yet.</p>
+          )}
+          <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-950/60 p-3 text-xs text-slate-300">
+            {JSON.stringify(stateResp || {}, null, 2)}
+          </pre>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
