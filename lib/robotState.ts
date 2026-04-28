@@ -14,11 +14,21 @@ import {
 
 /** API-facing statuses for Atom / DeskBot UI */
 export type RobotDeskDisplayStatus =
+  | 'planned'
   | 'focused'
   | 'waiting_for_proof'
   | 'blocked'
   | 'idle'
   | 'complete';
+
+export type RobotStateSource =
+  | 'active_daily_mission'
+  | 'active_today_mission'
+  | 'planned_daily_mission'
+  | 'proof_needed'
+  | 'day_closed'
+  | 'workflow_fallback'
+  | 'idle_fallback';
 
 export function truncate(s: string, max: number): string {
   return truncateRobotText(s, max);
@@ -67,6 +77,7 @@ function deriveDeskStatus(state: DailyCommandState, mission: DailyOutcome | null
   if (mission && mission.status === 'active' && !mission.proof_provided?.trim() && mission.proof_required?.trim()) {
     return 'waiting_for_proof';
   }
+  if (outcomes.some((o) => o.status === 'planned' || o.status === 'selected')) return 'planned';
   if (outcomes.some((o) => o.status !== 'done' && o.status !== 'skipped')) return 'focused';
   return 'idle';
 }
@@ -78,8 +89,8 @@ function nextActionLine(state: DailyCommandState, mission: DailyOutcome | null):
     return state.active_focus_block.current_action;
   }
   if (mission?.first_action) return mission.first_action;
-  if (!(state.outcomes ?? []).length) return 'Plan today in TaskPilot.';
-  return 'Start focus on the current mission in TaskPilot.';
+  if (!(state.outcomes ?? []).length) return 'Create daily plan';
+  return 'Start mission now';
 }
 
 function proofLine(mission: DailyOutcome | null): string {
@@ -95,6 +106,8 @@ function aiLine(status: RobotDeskDisplayStatus, mission: DailyOutcome | null, ne
       return 'Resolve blocker in TaskPilot, then retry focus.';
     case 'focused':
       return `Focus: ${truncate(mission?.title ?? 'mission', 40)}`;
+    case 'planned':
+      return 'Start the planned mission now.';
     case 'waiting_for_proof':
       return 'Log proof for current mission before marking done.';
     case 'idle':
@@ -102,6 +115,143 @@ function aiLine(status: RobotDeskDisplayStatus, mission: DailyOutcome | null, ne
     default:
       return truncate(nextAction, 80);
   }
+}
+
+function getMissionBySource(
+  daily: DailyCommandState
+): { source: RobotStateSource; mission: DailyOutcome | null } {
+  const outcomes = [...(daily.outcomes || [])];
+  const activeFocus = daily.active_focus_block;
+  if (activeFocus?.status === 'active' && activeFocus.outcome_id) {
+    const focusMission = outcomes.find((o) => o.id === activeFocus.outcome_id) || null;
+    if (focusMission) return { source: 'active_daily_mission', mission: focusMission };
+  }
+  const active = outcomes.find((o) => o.status === 'active') || null;
+  if (active) return { source: 'active_today_mission', mission: active };
+  const planned = outcomes
+    .filter((o) => o.status === 'planned' || o.status === 'selected')
+    .sort((a, b) => (a.priority ?? 3) - (b.priority ?? 3) || (b.leverage_score ?? 0) - (a.leverage_score ?? 0))[0] || null;
+  if (planned) return { source: 'planned_daily_mission', mission: planned };
+  const proofNeeded = outcomes.find((o) => o.status === 'done' && !String(o.proof_provided || '').trim()) || null;
+  if (proofNeeded) return { source: 'proof_needed', mission: proofNeeded };
+  if (daily.status === 'complete' || daily.debrief) return { source: 'day_closed', mission: null };
+  return { source: 'idle_fallback', mission: null };
+}
+
+function modeFromSource(source: RobotStateSource): RobotDisplayState['mode'] {
+  if (source === 'active_daily_mission' || source === 'active_today_mission') return 'focus';
+  if (source === 'planned_daily_mission') return 'planned';
+  if (source === 'proof_needed') return 'focus';
+  if (source === 'day_closed') return 'complete';
+  return 'idle';
+}
+
+function statusFromSource(source: RobotStateSource): RobotDeskDisplayStatus {
+  if (source === 'active_daily_mission' || source === 'active_today_mission') return 'focused';
+  if (source === 'planned_daily_mission') return 'planned';
+  if (source === 'proof_needed') return 'waiting_for_proof';
+  if (source === 'day_closed') return 'complete';
+  return 'idle';
+}
+
+function buildCommandLines(
+  daily: DailyCommandState | null,
+  source: RobotStateSource,
+  mission: DailyOutcome | null,
+  workflowFallbackAction?: string
+): { source: RobotStateSource; mission: string; next_move: string; proof_needed: string; short_message: string } {
+  if (!daily) {
+    if (workflowFallbackAction?.trim()) {
+      return {
+        source: 'workflow_fallback' as RobotStateSource,
+        mission: workflowFallbackAction,
+        next_move: 'Start mission',
+        proof_needed: 'Log mission proof',
+        short_message: 'Start current workflow step.'
+      };
+    }
+    return {
+      source: 'idle_fallback' as RobotStateSource,
+      mission: 'Plan today',
+      next_move: 'Create daily plan',
+      proof_needed: 'Start first mission',
+      short_message: 'Open TaskPilot and plan today.'
+    };
+  }
+  if (source === 'day_closed') {
+    return {
+      source,
+      mission: 'Day complete',
+      next_move: 'Review report',
+      proof_needed: 'Plan tomorrow',
+      short_message: 'Close strong by planning tomorrow.'
+    };
+  }
+  if (source === 'proof_needed') {
+    return {
+      source,
+      mission: mission?.short_title || mission?.title || 'Proof needed',
+      next_move: 'Log proof',
+      proof_needed: mission?.proof_required || 'Capture required proof',
+      short_message: 'Proof is required before moving on.'
+    };
+  }
+  if (source === 'planned_daily_mission') {
+    return {
+      source,
+      mission: mission?.short_title || mission?.title || 'Planned mission',
+      next_move: 'Start mission',
+      proof_needed: mission?.proof_required || 'Log mission proof',
+      short_message: 'Start the highest-priority mission.'
+    };
+  }
+  if (source === 'active_daily_mission' || source === 'active_today_mission') {
+    return {
+      source,
+      mission: mission?.short_title || mission?.title || 'Active mission',
+      next_move: daily.active_focus_block?.current_action || mission?.first_action || mission?.checklist?.[0] || 'Execute current step',
+      proof_needed: mission?.proof_required || 'Log mission proof',
+      short_message: 'Stay on this mission.'
+    };
+  }
+  return {
+    source: workflowFallbackAction?.trim() ? 'workflow_fallback' : 'idle_fallback',
+    mission: workflowFallbackAction?.trim() || 'Plan today',
+    next_move: workflowFallbackAction?.trim() ? 'Start mission' : 'Create daily plan',
+    proof_needed: workflowFallbackAction?.trim() ? 'Log mission proof' : 'Start first mission',
+    short_message: workflowFallbackAction?.trim() ? 'Workflow fallback in use.' : 'Open TaskPilot and plan today.'
+  };
+}
+
+function applyPressureRules(
+  daily: DailyCommandState | null,
+  source: RobotStateSource,
+  mission: DailyOutcome | null,
+  lines: { mission: string; next_move: string; proof_needed: string; short_message: string }
+) {
+  let pressure: 'low' | 'normal' | 'high' = 'normal';
+  let status = statusFromSource(source);
+  let nextMove = lines.next_move;
+  if (!daily) return { pressure, status, nextMove };
+  const focus = daily.active_focus_block;
+  if (focus?.status === 'active') {
+    const elapsed = minutesBetween(focus.started_at);
+    if (elapsed > (focus.planned_minutes || 25)) {
+      pressure = 'high';
+      nextMove = 'Finish or log blocker';
+    }
+  }
+  const hasDoneWithoutProof = (daily.outcomes || []).some((o) => o.status === 'done' && !String(o.proof_provided || '').trim());
+  if (hasDoneWithoutProof) {
+    status = 'waiting_for_proof';
+    nextMove = 'Log proof now';
+  }
+  const lastProgress = minutesBetween(daily.active_focus_block?.last_progress_at || mission?.updated_at || daily.last_saved_at);
+  if (lastProgress >= 25 && (source === 'active_daily_mission' || source === 'active_today_mission')) {
+    pressure = 'high';
+    nextMove = 'Check in or block';
+  }
+  return { pressure, status, nextMove };
 }
 
 export type RobotFriendlyPayload = Omit<
@@ -125,44 +275,40 @@ export function getRobotFriendlyState(_userId: string | null | undefined, robotI
       status: 'idle',
       active_session_id: null,
       active_daily_focus_id: null,
-      current_task: truncate('Daily Command Center', 24),
-      current_step: truncate('No plan yet', 24),
-      next_action: truncate('Plan today in TaskPilot.', 36),
-      proof_needed: truncate('', 36),
+      current_task: truncate('Today', 24),
+      current_step: truncate('Plan today', 24),
+      next_action: truncate('Create daily plan', 36),
+      proof_needed: truncate('Start first mission', 36),
       drift_risk: 'low',
       last_progress_minutes_ago: 999,
-      ai_message: truncate('Open Daily and save your execution plan.', 80)
+      ai_message: truncate('Open TaskPilot and plan today.', 80)
     };
   }
 
-  const mission = pickMissionOutcome(daily);
-  const status = deriveDeskStatus(daily, mission);
+  const picked = getMissionBySource(daily);
+  const lines = buildCommandLines(daily, picked.source, picked.mission);
+  const pressure = applyPressureRules(daily, picked.source, picked.mission, lines);
 
-  const current_task = truncate('Daily Command Center', 24);
-  const current_step = truncate(mission?.short_title || mission?.title || (daily.outcomes?.length ? 'Today plan' : 'No plan'), 24);
-
-  let next_action = truncate(nextActionLine(daily!, mission), 36);
-  if (!daily?.outcomes?.length) {
-    next_action = truncate('Plan today in TaskPilot.', 36);
-  }
-
-  const proof_needed = truncate(proofLine(mission), 36);
+  const current_task = truncate('Today', 24);
+  const current_step = truncate(lines.mission, 24);
+  const next_action = truncate(pressure.nextMove, 36);
+  const proof_needed = truncate(lines.proof_needed, 36);
 
   const driftSource = daily?.active_focus_block?.drift_score ?? 0;
   const drift_risk = driftLevel(driftSource);
 
   const lastIso =
     daily.active_focus_block?.last_progress_at ||
-    mission?.updated_at ||
-    mission?.created_at ||
+    picked.mission?.updated_at ||
+    picked.mission?.created_at ||
     daily.last_saved_at;
   const last_progress_minutes_ago = minutesBetween(lastIso);
 
-  const ai_message = truncate(aiLine(status, mission, next_action), 80);
+  const ai_message = truncate(lines.short_message, 80);
 
   return {
     robot_id: robotId,
-    status,
+    status: pressure.status,
     active_session_id: null,
     active_daily_focus_id: daily.active_focus_block?.id ?? null,
     current_task,
@@ -176,26 +322,29 @@ export function getRobotFriendlyState(_userId: string | null | undefined, robotI
 }
 
 function chooseMode(status: RobotDisplayState['status']): RobotDisplayState['mode'] {
-  if (status === 'waiting_for_proof') return 'proof';
-  if (status === 'focused' || status === 'blocked') return 'mission';
-  return 'status';
+  if (status === 'complete') return 'complete';
+  if (status === 'blocked') return 'blocked';
+  if (status === 'planned') return 'planned';
+  if (status === 'focused' || status === 'waiting_for_proof') return 'focus';
+  return 'idle';
 }
 
 export function toRobotDisplayState(
   robotId: string,
   daily: DailyCommandState | null,
-  opts?: { online?: boolean; last_seen_at?: string | null }
+  opts?: { online?: boolean; last_seen_at?: string | null; workflow_fallback_action?: string }
 ): RobotDisplayState {
-  const friendly = getRobotFriendlyState(null, robotId, daily);
+  const picked = daily ? getMissionBySource(daily) : { source: 'idle_fallback' as RobotStateSource, mission: null };
+  const lines = buildCommandLines(daily, picked.source, picked.mission, opts?.workflow_fallback_action);
+  const pressure = applyPressureRules(daily, lines.source, picked.mission, lines);
   const isOffline = opts?.online === false;
-  const status: RobotDisplayState['status'] = isOffline ? 'offline' : (friendly.status as RobotDisplayState['status']);
-  const mission = normalizeRobotMission(friendly.current_step || 'Today mission');
-  const next_move = normalizeRobotNextMove(
-    !daily?.outcomes?.length ? 'Plan today.' : friendly.next_action || 'Continue mission'
-  );
-  const proof_needed = normalizeRobotProof(friendly.proof_needed || 'Log proof in app');
+  const status: RobotDisplayState['status'] = isOffline ? 'offline' : (pressure.status as RobotDisplayState['status']);
+  const urgency: RobotDisplayState['urgency'] = status === 'blocked' ? 'high' : status === 'planned' ? 'normal' : 'normal';
+  const mission = normalizeRobotMission(lines.mission);
+  const next_move = normalizeRobotNextMove(pressure.nextMove);
+  const proof_needed = normalizeRobotProof(lines.proof_needed);
   const short_message = normalizeRobotShortMessage(
-    isOffline ? 'DeskBot offline. Open app and check heartbeat.' : friendly.ai_message || 'Stay on current mission.'
+    isOffline ? 'DeskBot offline. Open app and check heartbeat.' : lines.short_message || 'Stay on this mission.'
   );
   return {
     robot_id: robotId,
@@ -206,7 +355,9 @@ export function toRobotDisplayState(
     proof_needed,
     short_message,
     last_seen_at: opts?.last_seen_at ?? null,
-    button_hint: 'Press = check in'
+    button_hint: 'Press = check in',
+    urgency,
+    pressure_level: pressure.pressure
   };
 }
 

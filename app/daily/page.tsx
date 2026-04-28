@@ -26,7 +26,7 @@ import { trackEvent } from '@/lib/trackEvent';
 import { getDailyStorageKey, getReportsStorageKey, getUserProgressionStorageKey } from '@/lib/storage';
 import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
 import { DEFAULT_ROBOT_ID, ROBOT_API_KEY_LS, ROBOT_ID_LS, secondsAgoLabel } from '@/lib/robotClientSettings';
-import { syncRobotRelevantDailyState } from '@/lib/robotSync';
+import { syncDeskBotStateFromToday } from '@/lib/robotSync';
 import { TODAY_BUTTON_AUDIT } from '@/lib/buttonAudit';
 import type { PlanBuilderOutput } from '@/types/planBuilder';
 import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyDebrief, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
@@ -160,7 +160,7 @@ export default function DailyPage() {
   const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
   const [betaAdmin, setBetaAdmin] = useState(false);
   const [deskBotMeta, setDeskBotMeta] = useState<{ online?: boolean; last_heartbeat_at?: string | null } | null>(null);
-  const [deskBotState, setDeskBotState] = useState<{ mission?: string; next_move?: string; button_hint?: string } | null>(null);
+  const [deskBotState, setDeskBotState] = useState<{ mission?: string; next_move?: string; proof_needed?: string; button_hint?: string; source?: string } | null>(null);
   const [deskBotConfigured, setDeskBotConfigured] = useState(false);
   const [deskBotUiTick, setDeskBotUiTick] = useState(0);
   const [deskBotSyncStatus, setDeskBotSyncStatus] = useState<'synced' | 'waiting' | 'fallback' | 'error'>('waiting');
@@ -333,7 +333,7 @@ export default function DailyPage() {
     const key = localStorage.getItem(ROBOT_API_KEY_LS);
     const rid = localStorage.getItem(ROBOT_ID_LS) || DEFAULT_ROBOT_ID;
     setDeskBotSyncStatus('waiting');
-    void syncRobotRelevantDailyState(null, state, rid).then((res) => {
+    void syncDeskBotStateFromToday(null, state, rid, 'today_state_changed').then((res) => {
       if (!res.ok) return setDeskBotSyncStatus('error');
       const source = String((res.data as { state?: { source?: string } })?.state?.source || '');
       setDeskBotSyncStatus(source === 'fallback' ? 'fallback' : 'synced');
@@ -346,11 +346,11 @@ export default function DailyPage() {
         body: JSON.stringify({ robot_id: rid, daily_snapshot: state })
       })
         .then((r) => r.json())
-        .then((data: { meta?: { online?: boolean; last_heartbeat_at?: string | null }; state?: { mission?: string; next_move?: string; button_hint?: string; source?: string } }) => {
+        .then((data: { meta?: { online?: boolean; last_heartbeat_at?: string | null }; state?: { mission?: string; next_move?: string; proof_needed?: string; button_hint?: string; source?: string } }) => {
           if (data?.meta) setDeskBotMeta(data.meta);
           if (data?.state) setDeskBotState(data.state);
           const source = String(data?.state?.source || '');
-          setDeskBotSyncStatus(source === 'fallback' ? 'fallback' : 'waiting');
+          setDeskBotSyncStatus(source === 'workflow_fallback' || source === 'idle_fallback' ? 'fallback' : 'waiting');
         })
         .catch(() => setDeskBotSyncStatus('error'));
     }, 2200);
@@ -1317,12 +1317,13 @@ Money: ${debrief.money_score}/100
           headline={
             deskBotConfigured
               ? deskBotMeta?.online
-                ? 'DeskBot showing current mission.'
+                ? 'DeskBot command mirror'
                 : `DeskBot offline. Last seen ${secondsAgoLabel(deskBotMeta?.last_heartbeat_at)}.`
               : 'DeskBot not configured. Add robot key in Settings.'
           }
           mission={deskBotState?.mission}
           nextMove={deskBotState?.next_move}
+          proof={deskBotState?.proof_needed}
           syncStatus={deskBotSyncStatus}
           hint={deskBotState?.button_hint}
         />

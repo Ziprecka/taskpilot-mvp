@@ -30,6 +30,37 @@ function replyFromSnapshot(robotId: string): {
   };
 }
 
+async function resolveRobotOwnerUserId(robotId: string): Promise<string | null> {
+  const guard = getDbGuard();
+  if (!guard.ok) return process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || null;
+  const device = await guard.supabase.from('robot_devices').select('user_id').eq('robot_id', robotId).maybeSingle();
+  return (device.data?.user_id as string | undefined) || process.env.TASKPILOT_DEFAULT_ROBOT_USER_ID || null;
+}
+
+async function markActiveMissionBlocked(ownerUserId: string | null, note: string) {
+  if (!ownerUserId) return false;
+  const guard = getDbGuard();
+  if (!guard.ok) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  const active = await guard.supabase
+    .from('daily_outcomes')
+    .select('id')
+    .eq('user_id', ownerUserId)
+    .eq('date', today)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle();
+  if (!active.data?.id) return false;
+  const now = new Date().toISOString();
+  await guard.supabase.from('daily_outcomes').update({ status: 'blocked', blocker_note: note, updated_at: now }).eq('id', active.data.id);
+  await guard.supabase
+    .from('daily_focus_blocks')
+    .update({ status: 'blocked', blocker: note, ended_at: now, last_progress_at: now })
+    .eq('user_id', ownerUserId)
+    .eq('status', 'active');
+  return true;
+}
+
 export async function POST(req: NextRequest) {
   const auth = validateRobotRequest(req);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: 401 });
@@ -81,6 +112,7 @@ export async function POST(req: NextRequest) {
     return command;
   }
 
+  const ownerUserId = await resolveRobotOwnerUserId(robotId);
   switch (eventType) {
     case 'button_pressed':
       robot_reply = {
@@ -92,19 +124,20 @@ export async function POST(req: NextRequest) {
       lastCommand = queue('show_status', truncate(base.next_move, 80));
       break;
     case 'long_press':
+      await markActiveMissionBlocked(ownerUserId, 'DeskBot long press blocked');
       robot_reply = {
-        message: 'Open TaskPilot → mark outcome Blocked. Tell us what stopped you.',
+        message: 'Blocked noted. Open TaskPilot.',
         status: 'blocked',
-        next_move: 'Log blocker note on Daily Command Center.',
-        proof_needed: base.proof_needed
+        next_move: 'Open blocker',
+        proof_needed: 'Describe blocker'
       };
       lastCommand = queue('blocked_prompt', 'Long press: log blocker in TaskPilot.');
       break;
     case 'double_press':
       robot_reply = {
-        message: 'Proof needed before done. Capture photo or screenshot.',
+        message: 'Proof required',
         status: 'waiting_for_proof',
-        next_move: 'Upload proof for the active mission.',
+        next_move: 'Log proof',
         proof_needed: base.proof_needed
       };
       lastCommand = queue('request_proof', 'Double tap: log proof now.');
@@ -121,20 +154,21 @@ export async function POST(req: NextRequest) {
       break;
     }
     case 'blocked':
+      await markActiveMissionBlocked(ownerUserId, 'DeskBot blocked event');
       updateRobotState(robotId, { status: 'blocked' });
       robot_reply = {
         message: 'Blocked noted. Open TaskPilot.',
         status: 'blocked',
-        next_move: 'Clear blocker or edit outcome.',
-        proof_needed: base.proof_needed
+        next_move: 'Open blocker',
+        proof_needed: 'Describe blocker'
       };
       lastCommand = queue('blocked_prompt', 'Blocked event received.');
       break;
     case 'proof_request':
       robot_reply = {
-        message: 'Proof requested.',
+        message: 'Proof required',
         status: 'waiting_for_proof',
-        next_move: base.next_move,
+        next_move: 'Log proof',
         proof_needed: base.proof_needed
       };
       lastCommand = queue('request_proof', 'Proof request.');

@@ -11,7 +11,7 @@ import {
   setDailySnapshotForRobot,
   updateRobotState
 } from '@/lib/robotStore';
-import { getRobotFriendlyState, toRobotDisplayState, toRobotStateRecord } from '@/lib/robotState';
+import { getRobotFriendlyState, toRobotDisplayState, toRobotStateRecord, type RobotStateSource } from '@/lib/robotState';
 import type { DailyCommandState } from '@/types/workflow';
 import { normalizeRobotMission, normalizeRobotNextMove, normalizeRobotProof, normalizeRobotShortMessage } from '@/lib/robotText';
 
@@ -35,14 +35,6 @@ function buildMeta(robotId: string) {
     last_event_at: lastEvent?.created_at ?? null
   };
 }
-
-type RobotSource =
-  | 'active_focus'
-  | 'active_outcome'
-  | 'planned_outcome'
-  | 'proof_needed'
-  | 'workflow_step'
-  | 'fallback';
 
 async function resolveRobotOwnerUserId(robotId: string): Promise<string | null> {
   const guard = getDbGuard();
@@ -94,9 +86,9 @@ async function resolveRobotOwnerUserId(robotId: string): Promise<string | null> 
   return ownerId;
 }
 
-async function getDailyFromDbForOwner(ownerUserId: string): Promise<{ daily: DailyCommandState | null; source: RobotSource }> {
+async function getDailyFromDbForOwner(ownerUserId: string): Promise<{ daily: DailyCommandState | null; source: RobotStateSource; workflow_next_action?: string | null }> {
   const guard = getDbGuard();
-  if (!guard.ok) return { daily: null, source: 'fallback' };
+  if (!guard.ok) return { daily: null, source: 'idle_fallback' };
 
   const today = new Date().toISOString().slice(0, 10);
   const [focusRes, outcomesRes, reportRes, workflowRes] = await Promise.all([
@@ -136,14 +128,15 @@ async function getDailyFromDbForOwner(ownerUserId: string): Promise<{ daily: Dai
   const activeFocus = focusRes.data as Record<string, unknown> | null;
   const report = reportRes.data as Record<string, unknown> | null;
 
-  let source: RobotSource = 'fallback';
-  if (activeFocus) source = 'active_focus';
-  else if (outcomes.some((o) => o.status === 'active')) source = 'active_outcome';
-  else if (outcomes.some((o) => o.status === 'planned' || o.status === 'selected')) source = 'planned_outcome';
+  let source: RobotStateSource = 'idle_fallback';
+  if (activeFocus) source = 'active_daily_mission';
+  else if (outcomes.some((o) => o.status === 'active')) source = 'active_today_mission';
+  else if (outcomes.some((o) => o.status === 'planned' || o.status === 'selected')) source = 'planned_daily_mission';
   else if (outcomes.some((o) => o.status === 'done' && !String(o.proof_provided || '').trim())) source = 'proof_needed';
-  else if (workflowRes.data) source = 'workflow_step';
+  else if (report) source = 'day_closed';
+  else if (workflowRes.data) source = 'workflow_fallback';
 
-  if (!outcomes.length && !activeFocus && !workflowRes.data) return { daily: null, source: 'fallback' };
+  if (!outcomes.length && !activeFocus && !workflowRes.data && !report) return { daily: null, source: 'idle_fallback' };
 
   const mappedOutcomes = outcomes.map((o) => ({
     id: String(o.id || crypto.randomUUID()),
@@ -198,52 +191,41 @@ async function getDailyFromDbForOwner(ownerUserId: string): Promise<{ daily: Dai
     last_saved_at: new Date().toISOString()
   };
 
-  // If no daily but has workflow, use workflow step as emergency short mission.
-  if (!mappedOutcomes.length && workflowRes.data) {
-    const w = workflowRes.data as Record<string, unknown>;
-    daily.outcomes = [
-      {
-        id: String(w.id || crypto.randomUUID()),
-        title: String(w.ai_next_action || 'Continue workflow step'),
-        why_it_matters: '',
-        category: 'build',
-        priority: 1,
-        status: 'planned',
-        estimated_minutes: 20,
-        actual_minutes: 0,
-        proof_required: 'Log proof in app',
-        proof_provided: '',
-        first_action: String(w.ai_next_action || 'Continue workflow step'),
-        created_at: String(w.updated_at || new Date().toISOString()),
-        updated_at: String(w.updated_at || new Date().toISOString()),
-        completed_at: null
-      }
-    ];
-  }
-
-  return { daily, source };
+  const workflowNextAction = workflowRes.data ? String((workflowRes.data as Record<string, unknown>).ai_next_action || '').trim() : null;
+  return { daily, source, workflow_next_action: workflowNextAction };
 }
 
 function addCompatFields(
   state: ReturnType<typeof toRobotDisplayState>,
-  source: RobotSource,
-  ownerUserId: string | null
+  source: RobotStateSource,
+  ownerUserId: string | null,
+  raw?: { mission?: string; next_action?: string; proof?: string; last_synced_at?: string | null }
 ) {
-  const mission = normalizeRobotMission(state.mission || 'No mission yet');
-  const next = normalizeRobotNextMove(state.next_move || 'Open Today');
-  const proof = normalizeRobotProof(state.proof_needed || 'Create plan');
+  const rawMission = raw?.mission || state.mission || 'Plan today';
+  const rawNext = raw?.next_action || state.next_move || 'Create daily plan';
+  const rawProof = raw?.proof || state.proof_needed || 'Start first mission';
+  const mission = normalizeRobotMission(rawMission);
+  const next = normalizeRobotNextMove(rawNext);
+  const proof = normalizeRobotProof(rawProof);
   return {
     ...state,
     mission,
     next_move: next,
     proof_needed: proof,
-    short_message: normalizeRobotShortMessage(state.short_message || 'Stay on current mission.'),
+    short_message: normalizeRobotShortMessage(state.short_message || 'Stay on this mission.'),
     current_task: 'Today',
     current_step: mission,
     next_action: next,
     source,
+    raw_mission: rawMission,
+    short_mission: mission,
+    raw_next_action: rawNext,
+    short_next_action: next,
+    raw_proof: rawProof,
+    short_proof: proof,
     owner_user_id: ownerUserId,
-    last_updated: new Date().toISOString()
+    last_updated: new Date().toISOString(),
+    last_synced_at: raw?.last_synced_at || null
   };
 }
 
@@ -255,18 +237,41 @@ export async function GET(req: NextRequest) {
 
   const ownerUserId = await resolveRobotOwnerUserId(robotId);
   const memoryDaily = getDailySnapshotForRobot(robotId);
-  const dbResolved = ownerUserId ? await getDailyFromDbForOwner(ownerUserId) : { daily: null, source: 'fallback' as const };
+  const dbResolved = ownerUserId ? await getDailyFromDbForOwner(ownerUserId) : { daily: null, source: 'idle_fallback' as const, workflow_next_action: null };
   const chosenDaily = dbResolved.daily || memoryDaily;
-  const source = dbResolved.daily ? dbResolved.source : memoryDaily ? 'active_focus' : 'fallback';
+  let source: RobotStateSource = dbResolved.daily ? dbResolved.source : memoryDaily ? 'active_daily_mission' : 'idle_fallback';
   const lastSeen = getLastRobotHeartbeat(robotId);
   const online = isRobotOnline(robotId);
   const friendly = getRobotFriendlyState(ownerUserId, robotId, chosenDaily);
   const state = toRobotStateRecord(friendly);
-  const display = toRobotDisplayState(robotId, chosenDaily, { online, last_seen_at: lastSeen });
-  const compat = addCompatFields(display, source, ownerUserId);
+  const guard = getDbGuard();
+  const display = toRobotDisplayState(robotId, chosenDaily, {
+    online,
+    last_seen_at: lastSeen,
+    workflow_fallback_action: source === 'workflow_fallback' ? dbResolved.workflow_next_action || undefined : undefined
+  });
+  const persisted = guard.ok
+    ? await guard.supabase.from('robot_states').select('status,current_step,next_action,proof_needed,updated_at').eq('robot_id', robotId).maybeSingle()
+    : { data: null };
+  if (source === 'workflow_fallback' || source === 'idle_fallback') {
+    const p = persisted.data as Record<string, unknown> | null;
+    const hasPersistedDaily = Boolean(p?.current_step && String(p.current_step) !== 'Plan today');
+    if (hasPersistedDaily) {
+      source = 'active_daily_mission';
+      display.mission = normalizeRobotMission(String(p?.current_step || display.mission));
+      display.next_move = normalizeRobotNextMove(String(p?.next_action || display.next_move));
+      display.proof_needed = normalizeRobotProof(String(p?.proof_needed || display.proof_needed));
+      display.short_message = normalizeRobotShortMessage('Using latest synced Today mission.');
+    }
+  }
+  const compat = addCompatFields(display, source, ownerUserId, {
+    mission: state.current_step,
+    next_action: state.next_action,
+    proof: state.proof_needed,
+    last_synced_at: state.updated_at
+  });
   updateRobotState(robotId, state);
 
-  const guard = getDbGuard();
   if (guard.ok) {
     await guard.supabase.from('robot_states').upsert({
       robot_id: state.robot_id,
@@ -289,7 +294,7 @@ export async function GET(req: NextRequest) {
     state: compat,
     raw_state: state,
     meta: buildMeta(robotId),
-    warning: source === 'fallback' ? 'Robot API cannot see the active Daily mission yet.' : null
+    warning: source === 'workflow_fallback' || source === 'idle_fallback' ? 'DeskBot fallback in use. Sync Today state.' : null
   });
 }
 
@@ -312,7 +317,12 @@ export async function POST(req: NextRequest) {
   const computed = toRobotStateRecord(friendly);
   const state = updateRobotState(robotId, computed);
   const display = toRobotDisplayState(robotId, memoryDaily, { online, last_seen_at: lastSeen });
-  const compat = addCompatFields(display, memoryDaily ? 'active_focus' : 'fallback', ownerUserId);
+  const compat = addCompatFields(display, memoryDaily ? 'active_daily_mission' : 'idle_fallback', ownerUserId, {
+    mission: computed.current_step,
+    next_action: computed.next_action,
+    proof: computed.proof_needed,
+    last_synced_at: computed.updated_at
+  });
 
   const guard = getDbGuard();
   if (guard.ok) {

@@ -6,9 +6,13 @@ const PHRASE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/open google calendar/i, 'Open calendar'],
   [/screenshot or photo of loaded van and route\/timing plan/i, 'Photo van + route'],
   [/screenshot or photo/i, 'Photo or screenshot'],
-  [/continue current mission/i, 'Keep current mission'],
+  [/continue current mission/i, 'Run active mission'],
+  [/continue workflow step/i, 'Run workflow step'],
+  [/continue workflow/i, 'Run workflow'],
   [/start a 5-minute first move/i, 'Start first task'],
-  [/write messy goals/i, 'Plan today']
+  [/write messy goals/i, 'Plan today'],
+  [/plan today in taskpilot/i, 'Create daily plan'],
+  [/no mission yet/i, 'Plan today']
 ];
 
 function cleanRobotText(text: string): string {
@@ -35,12 +39,12 @@ export function normalizeRobotMission(text: string): string {
 
 export function normalizeRobotNextMove(text: string): string {
   const normalized = truncateRobotText(text, 36);
-  return normalized || 'Plan today';
+  return normalized || 'Create daily plan';
 }
 
 export function normalizeRobotProof(text: string): string {
   const normalized = truncateRobotText(text, 36);
-  return normalized || 'Log proof';
+  return normalized || 'Start first mission';
 }
 
 export function normalizeRobotShortMessage(text: string): string {

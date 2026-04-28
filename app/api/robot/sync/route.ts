@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDbUserGuard } from '@/lib/db';
-import { getRobotFriendlyState, toRobotDisplayState, toRobotStateRecord } from '@/lib/robotState';
+import { syncDeskBotStateFromToday } from '@/lib/deskBotSync';
 import type { DailyCommandState } from '@/types/workflow';
 
 export async function POST(req: NextRequest) {
@@ -12,26 +12,8 @@ export async function POST(req: NextRequest) {
   const daily = body?.daily_state as DailyCommandState | undefined;
   if (!daily) return NextResponse.json({ ok: false, error: 'Missing daily_state.' }, { status: 400 });
 
-  const friendly = getRobotFriendlyState(guard.userId, robotId, daily);
-  const record = toRobotStateRecord(friendly);
-  const display = toRobotDisplayState(robotId, daily, { online: true, last_seen_at: null });
-
-  const upsertState = await guard.supabase.from('robot_states').upsert({
-    user_id: guard.userId,
-    robot_id: robotId,
-    status: record.status,
-    active_session_id: record.active_session_id,
-    active_daily_focus_id: record.active_daily_focus_id,
-    current_task: record.current_task,
-    current_step: record.current_step,
-    next_action: record.next_action,
-    proof_needed: record.proof_needed,
-    drift_risk: record.drift_risk,
-    last_progress_minutes_ago: record.last_progress_minutes_ago,
-    ai_message: record.ai_message,
-    updated_at: new Date().toISOString()
-  });
-  if (upsertState.error) return NextResponse.json({ ok: false, error: upsertState.error.message }, { status: 500 });
+  const synced = await syncDeskBotStateFromToday(guard.userId, daily, robotId);
+  if (!synced.ok) return NextResponse.json({ ok: false, error: synced.error }, { status: 500 });
 
   await guard.supabase.from('robot_devices').upsert(
     {
@@ -49,10 +31,10 @@ export async function POST(req: NextRequest) {
     ok: true,
     sync_status: 'synced',
     state: {
-      ...display,
+      ...synced.state,
       current_task: 'Today',
-      current_step: display.mission,
-      next_action: display.next_move
+      current_step: synced.state.mission,
+      next_action: synced.state.next_move
     },
     updated_at: new Date().toISOString()
   });

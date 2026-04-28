@@ -1,5 +1,6 @@
 export type RobotStatus =
   | 'idle'
+  | 'planned'
   | 'focused'
   | 'waiting_for_proof'
   | 'drift_detected'
@@ -56,14 +57,16 @@ export type RobotState = {
 
 export type RobotDisplayState = {
   robot_id: string;
-  status: 'idle' | 'focused' | 'waiting_for_proof' | 'blocked' | 'complete' | 'offline';
-  mode: 'status' | 'mission' | 'next' | 'proof';
+  status: 'idle' | 'planned' | 'focused' | 'waiting_for_proof' | 'blocked' | 'complete' | 'offline';
+  mode: 'idle' | 'planned' | 'focus' | 'blocked' | 'complete';
   mission: string;
   next_move: string;
   proof_needed: string;
   short_message: string;
   last_seen_at: string | null;
   button_hint: string;
+  urgency?: 'low' | 'normal' | 'high';
+  pressure_level?: 'low' | 'normal' | 'high';
 };
 
 export type RobotCommand = {

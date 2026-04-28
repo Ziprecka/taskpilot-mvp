@@ -21,11 +21,21 @@ type RobotMeta = {
 
 type RobotStateView = {
   status?: string;
+  mode?: string;
+  pressure_level?: string;
+  urgency?: string;
   current_task?: string;
   mission?: string;
   next_move?: string;
   proof_needed?: string;
   source?: string;
+  raw_mission?: string;
+  short_mission?: string;
+  raw_next_action?: string;
+  short_next_action?: string;
+  raw_proof?: string;
+  short_proof?: string;
+  last_synced_at?: string | null;
   owner_user_id?: string | null;
   last_updated?: string;
   short_message?: string;
@@ -148,6 +158,9 @@ export default function RobotSettingsPage() {
               <span className="text-slate-500">Status:</span> {String(rstate?.status ?? '—')}
             </p>
             <p>
+              <span className="text-slate-500">Mode:</span> {String(rstate?.mode ?? '—')} · {String(rstate?.pressure_level ?? 'normal')}
+            </p>
+            <p>
               <span className="text-slate-500">Current task:</span> {String(rstate?.current_task ?? '—')}
             </p>
             <p className="md:col-span-2">
@@ -183,10 +196,20 @@ export default function RobotSettingsPage() {
             </button>
           </div>
           <p className="text-xs text-slate-400">Owner user_id: {rstate?.owner_user_id || 'unknown'}</p>
-          <p className="text-xs text-slate-400">Source: {rstate?.source || 'fallback'}</p>
+          <p className="text-xs text-slate-400">State source: {rstate?.source || 'idle_fallback'}</p>
           <p className="text-xs text-slate-400">Last updated: {rstate?.last_updated || '—'}</p>
-          {rstate?.source === 'fallback' && (
-            <p className="mt-2 text-xs text-amber-300">Warning: source is fallback. Robot may show No mission yet.</p>
+          <p className="text-xs text-slate-400">Last synced at: {rstate?.last_synced_at || '—'}</p>
+          <p className="mt-2 text-xs text-slate-400">Raw mission: {rstate?.raw_mission || '—'}</p>
+          <p className="text-xs text-slate-400">Short mission: {rstate?.short_mission || rstate?.mission || '—'}</p>
+          <p className="text-xs text-slate-400">Raw next action: {rstate?.raw_next_action || '—'}</p>
+          <p className="text-xs text-slate-400">Short next action: {rstate?.short_next_action || rstate?.next_move || '—'}</p>
+          <p className="text-xs text-slate-400">Raw proof: {rstate?.raw_proof || '—'}</p>
+          <p className="text-xs text-slate-400">Short proof: {rstate?.short_proof || rstate?.proof_needed || '—'}</p>
+          {rstate?.source === 'workflow_fallback' && (
+            <p className="mt-2 text-xs text-amber-300">DeskBot is using workflow fallback instead of active Today mission.</p>
+          )}
+          {rstate?.source === 'idle_fallback' && (
+            <p className="mt-2 text-xs text-amber-300">DeskBot is idle fallback. Create or sync Today plan.</p>
           )}
           <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-950/60 p-3 text-xs text-slate-300">
             {JSON.stringify(stateResp || {}, null, 2)}

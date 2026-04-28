@@ -58,7 +58,7 @@ export default function DashboardPage() {
   const latestSession = savedSessions[0];
   const totalXP = Number(progression?.total_xp || 0);
   const recommended = dailyState?.active_focus_block?.status === 'active'
-    ? { title: 'Continue current mission', reason: `Focus on ${dailyState.active_focus_block.title} and log proof.`, href: '/daily', cta: 'Continue mission' }
+    ? { title: 'Run active mission', reason: `Focus on ${dailyState.active_focus_block.title} and log proof.`, href: '/daily', cta: 'Open mission' }
     : !dailyState?.outcomes?.length
       ? { title: 'Plan today', reason: 'No outcomes yet. Define today before execution.', href: '/daily', cta: 'Plan today' }
       : dailyState?.outcomes?.some((o: any) => o.status !== 'done')
