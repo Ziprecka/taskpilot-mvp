@@ -1,6 +1,6 @@
 import type { DailyOutcome } from '@/types/workflow';
 
-export type CopilotMode = 'action' | 'draft' | 'blocked';
+export type CopilotMode = 'action' | 'draft' | 'blocked' | 'brainstorm';
 
 export type CopilotMissionType =
   | 'outreach'
@@ -26,24 +26,31 @@ export type CopilotExecutionOutput = {
   proof_required: string;
   next_after_proof: string;
   copyable_artifacts?: Array<{ label: string; content: string }>;
+  source?: 'current_mission' | 'brainstorm' | 'artifact_template' | 'repaired_stale_output' | 'blocked_helper';
 };
 
-export type CopilotBusinessContext = {
+export type UserExecutionContext = {
+  user_id?: string;
+  email?: string;
+  role?: string;
+  industry?: string;
   business_name?: string;
   service_area?: string;
   offer?: string;
   target_customer?: string;
+  preferred_tone?: string;
+  common_tools?: string[];
+  private_examples?: string[];
   booking_link?: string;
-  tone?: string;
 };
 
-export const DEFAULT_COPILOT_BUSINESS_CONTEXT: Required<CopilotBusinessContext> = {
-  business_name: 'Suds Auto Salon',
-  service_area: 'Seattle / North Seattle / Snohomish County area',
-  offer: 'mobile auto detailing',
-  target_customer: 'car owners, busy professionals, families, high-income vehicle owners, small businesses with vehicles',
-  booking_link: '[booking link]',
-  tone: 'direct, premium, helpful'
+type ResolvedContext = Required<Pick<UserExecutionContext, 'booking_link'>> & UserExecutionContext;
+
+export type CopilotGeneratedState = {
+  mission_id: string | null;
+  mode: CopilotMode;
+  generated_at: string;
+  output: CopilotExecutionOutput;
 };
 
 const GENERIC_BANNED = [
@@ -56,8 +63,36 @@ const GENERIC_BANNED = [
   'log proof'
 ];
 
-function mergedBusinessContext(ctx?: CopilotBusinessContext): Required<CopilotBusinessContext> {
-  return { ...DEFAULT_COPILOT_BUSINESS_CONTEXT, ...(ctx || {}) };
+function isSamUser(email?: string): boolean {
+  return String(email || '').toLowerCase() === 'sladoski64@gmail.com';
+}
+
+function mergedUserContext(ctx?: UserExecutionContext): ResolvedContext {
+  return {
+    ...(ctx || {}),
+    booking_link: ctx?.booking_link || '[booking link]'
+  };
+}
+
+function shouldUseSamPrivateContext(ctx: ResolvedContext, missionType: CopilotMissionType, dailyGoalContext?: string): boolean {
+  if (!isSamUser(ctx.email)) return false;
+  const blob = `${dailyGoalContext || ''} ${missionType}`.toLowerCase();
+  return /\b(detail|detailing|service|leads?|outreach|customers?)\b/.test(blob);
+}
+
+function applyUserScopedDefaults(ctx: ResolvedContext, missionType: CopilotMissionType, dailyGoalContext?: string): ResolvedContext {
+  if (ctx.business_name || ctx.offer || ctx.service_area) return ctx;
+  if (!shouldUseSamPrivateContext(ctx, missionType, dailyGoalContext)) return ctx;
+  return {
+    ...ctx,
+    business_name: 'Suds Auto Salon',
+    industry: 'mobile auto detailing',
+    service_area: 'Seattle / North Seattle / Snohomish County',
+    offer: 'mobile auto detailing',
+    target_customer:
+      'car owners, busy professionals, families, high-income vehicle owners, local vehicle-based businesses',
+    preferred_tone: 'direct, premium, helpful'
+  };
 }
 
 export function getCopilotMissionType(
@@ -125,10 +160,13 @@ export const copilotArtifactTemplates: Record<
   ]
 };
 
-function outreachArtifacts(ctx: Required<CopilotBusinessContext>) {
-  const opener = `Hey [name] — I run ${ctx.business_name}, a ${ctx.offer} service in ${ctx.service_area}. Your [vehicle/business/page] caught my eye, and I have a few slots this week. Want a quick quote?`;
-  const softer = `Hi [name], quick hello from ${ctx.business_name}. If you ever want ${ctx.offer} without driving anywhere, I can send a simple quote and availability.`;
-  const followup = `Just checking back — I still have a couple ${ctx.offer} openings this week. Want me to send pricing + times?`;
+function outreachArtifacts(ctx: ResolvedContext) {
+  const brand = ctx.business_name || 'my service';
+  const offer = ctx.offer || 'mobile service';
+  const area = ctx.service_area ? ` in ${ctx.service_area}` : '';
+  const opener = `Hey [name] — I run ${brand}, a ${offer}${area}. Your [vehicle/business/page] caught my eye, and I have a few slots this week. Want a quick quote?`;
+  const softer = `Hi [name], quick hello from ${brand}. If you ever want ${offer} without extra hassle, I can send a simple quote and availability.`;
+  const followup = `Just checking back — I still have a couple ${offer} openings this week. Want me to send pricing + times?`;
   const booking = `If you want to lock it in, book here: ${ctx.booking_link}`;
   return [
     { label: 'DM opener', content: opener },
@@ -143,17 +181,38 @@ function buildByType(
   type: CopilotMissionType,
   mode: CopilotMode,
   mission: DailyOutcome | null,
-  ctx: Required<CopilotBusinessContext>
+  ctx: ResolvedContext
 ): CopilotExecutionOutput {
   const proof = mission?.proof_required || 'Screenshot of completed action and tracker update.';
+
+  if (mode === 'brainstorm') {
+    return {
+      mode,
+      title: "Let's turn this into a useful mission.",
+      immediate_action: 'Choose one path below and start the first concrete action.',
+      where_to_go: ['Current mission card', 'Main execution tool for selected path'],
+      make_this:
+        'Best interpretation: You need one practical path with clear proof.\nPaths: 1) Build list/scope 2) Execute outreach/work block 3) Follow up/close loop\nRecommended: Path 1 then Path 2.',
+      checklist: [
+        'Pick one path only',
+        'Write the first action in one sentence',
+        'Run for 10-15 minutes',
+        'Capture one visible proof'
+      ],
+      proof_required: proof,
+      next_after_proof: 'Use this path and sharpen mission title/first action if needed.',
+      copyable_artifacts: [{ label: 'Use this path', content: 'Recommended path: Build list/scope -> execute -> follow-up. First action: start with 10 concrete items.' }],
+      source: 'brainstorm'
+    };
+  }
 
   if (type === 'outreach' || type === 'lead_generation') {
     if (mode === 'action') {
       return {
         mode,
-        title: 'Send 5 targeted outreach messages',
+        title: 'Send targeted outreach messages',
         immediate_action:
-          'Open Instagram and search "Seattle cars" or "Seattle WRX", pick 5 accounts with visible vehicles, and send the DM template below.',
+          'Open Instagram and search local car hashtags, pick 5 accounts with visible vehicles, and send the DM template below.',
         where_to_go: [
           'Instagram local car hashtags and local profiles',
           'Google Maps: apartments, gyms, barbershops, realtors, dealerships, auto shops',
@@ -170,7 +229,8 @@ function buildByType(
         ],
         proof_required: proof,
         next_after_proof: 'Log proof, then send follow-up to any non-replies in 24-48 hours.',
-        copyable_artifacts: outreachArtifacts(ctx)
+        copyable_artifacts: outreachArtifacts(ctx),
+        source: 'artifact_template'
       };
     }
     if (mode === 'blocked') {
@@ -192,7 +252,8 @@ function buildByType(
         copyable_artifacts: [
           { label: '2-minute unblock rule', content: 'First 5 reasonable leads > waiting for perfect leads.' },
           ...outreachArtifacts(ctx).slice(1, 3)
-        ]
+        ],
+        source: 'blocked_helper'
       };
     }
     return {
@@ -205,7 +266,29 @@ function buildByType(
       checklist: ['Send 5 messages', 'Mark tracker rows', 'Set follow-up dates'],
       proof_required: proof,
       next_after_proof: 'Log proof and run follow-up sequence.',
-      copyable_artifacts: outreachArtifacts(ctx)
+      copyable_artifacts: outreachArtifacts(ctx),
+      source: 'artifact_template'
+    };
+  }
+
+  if (type === 'app_build') {
+    return {
+      mode,
+      title: 'Build the acceptance checklist',
+      immediate_action: 'Open Cursor and identify the route/component that controls the visible change.',
+      where_to_go: ['Cursor project search', 'Target route/component file'],
+      make_this:
+        'Acceptance checklist:\n- route/file identified\n- one UI change scoped\n- before screenshot captured\n- after screenshot captured\n- build passes',
+      checklist: [
+        'Name exact file path',
+        'Implement smallest visible diff',
+        'Capture before/after screenshots',
+        'Run npm run build'
+      ],
+      proof_required: mission?.proof_required || 'Before/after screenshot + commit hash.',
+      next_after_proof: 'Make the smallest visible change and run build.',
+      copyable_artifacts: copilotArtifactTemplates.app_build,
+      source: mode === 'blocked' ? 'blocked_helper' : 'artifact_template'
     };
   }
 
@@ -218,9 +301,7 @@ function buildByType(
           ? copilotArtifactTemplates.customer_followup
           : type === 'unpaid_invoice'
             ? copilotArtifactTemplates.unpaid_invoice
-            : type === 'app_build'
-              ? copilotArtifactTemplates.app_build
-              : type === 'hardware_debug'
+            : type === 'hardware_debug'
                 ? copilotArtifactTemplates.hardware_debug
                 : copilotArtifactTemplates.admin;
 
@@ -239,7 +320,8 @@ function buildByType(
     checklist: mission?.checklist?.slice(0, 4) || ['Run first action', 'Capture proof', 'Update status'],
     proof_required: proof,
     next_after_proof: 'Log proof and move to the next highest-leverage action.',
-    copyable_artifacts: baseArtifacts
+    copyable_artifacts: baseArtifacts,
+    source: mode === 'blocked' ? 'blocked_helper' : 'current_mission'
   };
 }
 
@@ -250,21 +332,94 @@ function isGeneric(output: CopilotExecutionOutput): boolean {
   return hasBanned || tooShort;
 }
 
+function dedupeArtifacts(artifacts?: Array<{ label: string; content: string }>) {
+  if (!artifacts?.length) return [];
+  const seen = new Set<string>();
+  const out: Array<{ label: string; content: string }> = [];
+  for (const item of artifacts) {
+    const key = `${item.label.trim().toLowerCase()}|${item.content.trim().toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+export function dedupeCopilotSections(output: CopilotExecutionOutput): CopilotExecutionOutput {
+  const cleaned = { ...output };
+  cleaned.copyable_artifacts = dedupeArtifacts(cleaned.copyable_artifacts);
+  if (cleaned.template && cleaned.make_this && cleaned.template.trim().toLowerCase() === cleaned.make_this.trim().toLowerCase()) {
+    cleaned.template = undefined;
+  }
+  return cleaned;
+}
+
+function isVagueMission(mission: DailyOutcome | null, detectedWorkType?: string): boolean {
+  if (!mission) return true;
+  const text = `${mission.title} ${mission.first_action} ${mission.proof_required}`.toLowerCase();
+  const genericWords = /(make money|grow business|work on app|find leads|fix workflow|get organized|make progress)/i;
+  const genericFirstAction = /(start|do|work on|make progress|use template)/i.test(String(mission.first_action || ''));
+  const genericProof = /(log proof|proof item|visible progress)/i.test(String(mission.proof_required || ''));
+  return genericWords.test(text) || genericFirstAction || genericProof || detectedWorkType === 'custom';
+}
+
+function hasWrongArtifactForMission(missionType: CopilotMissionType, output: CopilotExecutionOutput): boolean {
+  const blob = `${output.make_this || ''} ${output.template || ''} ${output.copyable_artifacts?.map((a) => a.label).join(' ') || ''}`.toLowerCase();
+  if (missionType === 'app_build' || missionType === 'hardware_debug' || missionType === 'admin') {
+    return /customer confirmation|review ask|maintenance offer/.test(blob);
+  }
+  return false;
+}
+
+function hasSudsLeak(output: CopilotExecutionOutput, ctx: ResolvedContext): boolean {
+  if (isSamUser(ctx.email)) return false;
+  const blob = `${output.title} ${output.immediate_action} ${output.make_this || ''} ${output.template || ''} ${
+    output.copyable_artifacts?.map((a) => a.content).join(' ') || ''
+  }`.toLowerCase();
+  return /suds auto salon|north seattle|snohomish|sam/.test(blob);
+}
+
+function qualityRepair(
+  missionType: CopilotMissionType,
+  mode: CopilotMode,
+  mission: DailyOutcome | null,
+  ctx: ResolvedContext
+): CopilotExecutionOutput {
+  const repaired = buildByType(missionType, mode === 'brainstorm' ? 'action' : mode, mission, ctx);
+  return { ...repaired, source: 'repaired_stale_output' };
+}
+
+export function getDefaultCopilotMode(args: {
+  mission: DailyOutcome | null;
+  detectedWorkType?: string;
+  blocked?: boolean;
+}): CopilotMode {
+  if (args.blocked || args.mission?.status === 'blocked') return 'blocked';
+  if (isVagueMission(args.mission, args.detectedWorkType)) return 'brainstorm';
+  const type = getCopilotMissionType(args.mission, '', args.detectedWorkType);
+  if (type === 'outreach' || type === 'lead_generation' || type === 'customer_followup' || type === 'review_request') return 'draft';
+  return 'action';
+}
+
 export function buildCopilotExecutionOutput(args: {
   mode: CopilotMode;
   mission: DailyOutcome | null;
   dailyGoalContext?: string;
   detectedWorkType?: string;
-  businessContext?: CopilotBusinessContext;
+  userContext?: UserExecutionContext;
 }): CopilotExecutionOutput {
-  const context = mergedBusinessContext(args.businessContext);
   const missionType = getCopilotMissionType(args.mission, args.dailyGoalContext, args.detectedWorkType);
-  const first = buildByType(missionType, args.mode, args.mission, context);
-  if (!isGeneric(first) && !(missionType === 'outreach' || missionType === 'lead_generation')) return first;
-  if ((missionType === 'outreach' || missionType === 'lead_generation') && first.copyable_artifacts?.some((a) => /hey \[name\]/i.test(a.content))) {
-    return first;
-  }
-  return buildByType('outreach', args.mode === 'blocked' ? 'blocked' : 'draft', args.mission, context);
+  const context = applyUserScopedDefaults(mergedUserContext(args.userContext), missionType, args.dailyGoalContext);
+  const effectiveMode = isVagueMission(args.mission, args.detectedWorkType) && args.mode === 'action' ? 'brainstorm' : args.mode;
+  const first = dedupeCopilotSections(buildByType(missionType, effectiveMode, args.mission, context));
+  const invalid =
+    isGeneric(first) ||
+    hasWrongArtifactForMission(missionType, first) ||
+    hasSudsLeak(first, context) ||
+    !String(first.proof_required || '').trim() ||
+    !String(first.immediate_action || '').trim();
+  if (!invalid) return first;
+  return dedupeCopilotSections(qualityRepair(missionType, effectiveMode, args.mission, context));
 }
 
 /** Dev regression checks for Copilot mission execution quality */

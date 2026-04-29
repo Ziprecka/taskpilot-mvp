@@ -41,6 +41,15 @@ export async function createUserProfileIfMissing(params: {
   utm_campaign?: string | null;
   utm_content?: string | null;
   x_handle?: string | null;
+  work_use?: string | null;
+  business_name?: string | null;
+  industry?: string | null;
+  service_area?: string | null;
+  offer?: string | null;
+  target_customer?: string | null;
+  common_tools?: string[] | null;
+  preferred_tone?: string | null;
+  booking_link?: string | null;
 }) {
   const admin = getSupabaseAdminClient();
   if (!admin) return { ok: false as const, error: 'Supabase admin unavailable.' };
@@ -60,6 +69,15 @@ export async function createUserProfileIfMissing(params: {
     utm_campaign: params.utm_campaign ?? null,
     utm_content: params.utm_content ?? null,
     x_handle: params.x_handle ?? null,
+    work_use: params.work_use ?? null,
+    business_name: params.business_name ?? null,
+    industry: params.industry ?? null,
+    service_area: params.service_area ?? null,
+    offer: params.offer ?? null,
+    target_customer: params.target_customer ?? null,
+    common_tools: params.common_tools ?? null,
+    preferred_tone: params.preferred_tone ?? null,
+    booking_link: params.booking_link ?? null,
     contact_status: 'new'
   });
   if (error) return { ok: false as const, error: error.message };
