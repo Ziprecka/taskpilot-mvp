@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAIClient } from '@/lib/openai';
 import { buildPlan } from '@/lib/planBuilder';
+import { enhancePlanWithExecutionAssets } from '@/lib/planExecutionAssets';
 import { PLAN_BUILDER_RESPONSE_SCHEMA } from '@/lib/planBuilderSchema';
 import { PLAN_BUILDER_SYSTEM_PROMPT, createPlanBuilderUserPrompt } from '@/lib/planBuilderPrompt';
 import { validatePlanAgainstGoal } from '@/lib/planValidation';
@@ -46,6 +47,9 @@ function missionToOutcome(mission: any, idx: number, category: DailyOutcome['cat
 function aiPlanToOutput(input: any, aiPlan: any): PlanBuilderOutput {
   const category = mapMissionCategory(String(aiPlan.execution_pattern || ''));
   const outcomes = (Array.isArray(aiPlan.missions) ? aiPlan.missions : []).slice(0, 5).map((m: any, idx: number) => missionToOutcome(m, idx, category));
+  const deliverables = Array.isArray(aiPlan.deliverables) ? aiPlan.deliverables.map(String) : [];
+  const proofChecklist = Array.isArray(aiPlan.proof_checklist) ? aiPlan.proof_checklist.map(String) : [];
+
   return {
     detected_work_type: 'custom',
     interpreted_goal: String(aiPlan.interpreted_goal || input.raw_goal || ''),
@@ -59,7 +63,11 @@ function aiPlanToOutput(input: any, aiPlan: any): PlanBuilderOutput {
     clarifying_questions: [],
     plan_title: `${String(aiPlan.execution_pattern || 'execution').replace(/_/g, ' ')} plan`,
     plan_summary: `Goal-first execution plan generated from goal, outcome, and constraints.`,
-    proof_checklist: Array.isArray(aiPlan.proof_checklist) ? aiPlan.proof_checklist.map(String) : [],
+    sections: [
+      ...(deliverables.length ? [{ id: 'deliverables', title: 'Deliverables', items: deliverables }] : []),
+      ...(proofChecklist.length ? [{ id: 'proof', title: 'Proof checklist', items: proofChecklist }] : [])
+    ],
+    proof_checklist: proofChecklist,
     daily_outcomes: outcomes,
     today_missions: outcomes.map((o: any) => ({
       title: o.title,
@@ -79,8 +87,8 @@ function aiPlanToOutput(input: any, aiPlan: any): PlanBuilderOutput {
       action: 'execute',
       desired_outcome: input.desired_outcome || aiPlan.interpreted_goal || input.raw_goal || '',
       constraints: Array.isArray(aiPlan.constraints_respected) ? aiPlan.constraints_respected.map(String) : [],
-      deliverables: Array.isArray(aiPlan.deliverables) ? aiPlan.deliverables.map(String) : [],
-      proof_signals: Array.isArray(aiPlan.proof_checklist) ? aiPlan.proof_checklist.map(String) : [],
+      deliverables,
+      proof_signals: proofChecklist,
       tools: [],
       domain_terms: [],
       unknowns: []
@@ -125,6 +133,10 @@ async function generateAiPlan(openai: ReturnType<typeof getOpenAIClient>, payloa
   return JSON.parse(response.output_text || '{}');
 }
 
+function withExecutionAssets(payload: any, plan: PlanBuilderOutput): PlanBuilderOutput {
+  return enhancePlanWithExecutionAssets(payload, plan);
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const payload = {
@@ -146,7 +158,8 @@ export async function POST(req: NextRequest) {
       time_horizon: 'today',
       user_context: payload.user_context
     });
-    return NextResponse.json({ ok: true, source: 'fallback', plan: fallback });
+    const plan = withExecutionAssets(payload, fallback);
+    return NextResponse.json({ ok: true, source: 'fallback', plan });
   }
 
   try {
@@ -171,6 +184,7 @@ export async function POST(req: NextRequest) {
 
     plan.relevance_score = validation.relevanceScore;
     plan.relevance_label = validation.relevanceScore >= 8 ? 'strong' : validation.relevanceScore >= 5 ? 'good' : 'weak';
+    plan = withExecutionAssets(payload, plan);
     return NextResponse.json({ ok: true, source: 'openai', plan, validation });
   } catch {
     const fallback = buildPlan({
@@ -182,7 +196,7 @@ export async function POST(req: NextRequest) {
       time_horizon: 'today',
       user_context: payload.user_context
     });
-    return NextResponse.json({ ok: true, source: 'fallback_on_error', plan: fallback });
+    const plan = withExecutionAssets(payload, fallback);
+    return NextResponse.json({ ok: true, source: 'fallback_on_error', plan });
   }
 }
-
