@@ -28,8 +28,14 @@ import { saveGeneratedWorkflow } from '@/lib/workflowPersistence';
 import { DEFAULT_ROBOT_ID, ROBOT_API_KEY_LS, ROBOT_ID_LS, secondsAgoLabel } from '@/lib/robotClientSettings';
 import { syncTodayDeskBotPayload } from '@/lib/robotSync';
 import { TODAY_BUTTON_AUDIT } from '@/lib/buttonAudit';
+import {
+  buildCopilotExecutionOutput,
+  type CopilotExecutionOutput,
+  type CopilotMode,
+  type CopilotBusinessContext
+} from '@/lib/copilot';
 import type { PlanBuilderOutput } from '@/types/planBuilder';
-import type { DailyAIResponse, DailyCommandState, DailyCoachMessage, DailyDebrief, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
+import type { DailyCommandState, DailyDebrief, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
 
 type DayType = NonNullable<DailyCommandState['selected_day_type']>;
 type DailyTab = 'outcomes' | 'focus' | 'coach' | 'timeline' | 'report';
@@ -130,7 +136,6 @@ export default function DailyPage() {
 
   const [state, setState] = useState<DailyCommandState>(buildInitialState(today));
   const [mobileTab, setMobileTab] = useState<DailyTab>('outcomes');
-  const [input, setInput] = useState('');
   const [aiMode, setAiMode] = useState<'openai' | 'mock'>('mock');
   const [syncLabel, setSyncLabel] = useState('Local');
   const [planBuilderModalOpen, setPlanBuilderModalOpen] = useState(false);
@@ -152,12 +157,9 @@ export default function DailyPage() {
   const [showCompleteWithoutProof, setShowCompleteWithoutProof] = useState<string | null>(null);
   const [showCloseDayModal, setShowCloseDayModal] = useState(false);
   const [showCloseWarning, setShowCloseWarning] = useState(false);
-  const [copilotMode, setCopilotMode] = useState<'action' | 'draft' | 'blocked'>('action');
-  const [copilotArtifact, setCopilotArtifact] = useState('');
-  const [showCoachHistory, setShowCoachHistory] = useState(false);
-  const [copilotExpanded, setCopilotExpanded] = useState(false);
+  const [copilotMode, setCopilotMode] = useState<CopilotMode>('action');
+  const [copilotOutput, setCopilotOutput] = useState<CopilotExecutionOutput | null>(null);
   const [showCompletedExpanded, setShowCompletedExpanded] = useState(false);
-  const [isCoachLoading, setIsCoachLoading] = useState(false);
   const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
   const [betaAdmin, setBetaAdmin] = useState(false);
   const [deskBotMeta, setDeskBotMeta] = useState<{ online?: boolean; last_heartbeat_at?: string | null } | null>(null);
@@ -839,122 +841,6 @@ export default function DailyPage() {
     pushToast('Lesson saved.');
   }
 
-  async function sendCoachMessage(promptOverride?: string) {
-    const content = (promptOverride ?? input).trim();
-    if (!content) return;
-    setInput('');
-    setIsCoachLoading(true);
-    const userMsg: DailyCoachMessage = { id: crypto.randomUUID(), role: 'user', content, created_at: nowIso() };
-    updateState((prev) => ({ ...prev, coach_messages: [...prev.coach_messages, userMsg].slice(-80) }));
-    logEvent('coach_message_sent', `Coach: ${content.slice(0, 60)}`);
-    try {
-      const res = await fetch('/api/daily/coach', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: content,
-          selected_day_type: selectedDayType || dayType,
-          custom_context: customDirection,
-          dayType,
-          customDirection,
-          outcomes: state.outcomes,
-          focus: state.active_focus_block,
-          events: state.events,
-          report: state.report,
-          xp_state: { total_xp: progression.total_xp, xp_today: state.xp_today || 0, streak: progression.current_streak, level: progression.level },
-          copilot_mode: copilotMode,
-          fullState: state
-        })
-      });
-      const payload = await res.json();
-      const ai: DailyAIResponse = payload?.data;
-    const textBlob = `${ai?.next_move || ''} ${ai?.go_here || ''} ${ai?.write_make_do || ''} ${ai?.proof_needed || ''} ${ai?.direct_answer || ''}`.toLowerCase();
-    const stateBlob = JSON.stringify({
-      outcomes: state.outcomes.map((o) => o.title.toLowerCase()),
-      active: state.active_focus_block?.title?.toLowerCase() || '',
-      message: content.toLowerCase()
-    });
-    const hasConcreteVerb = /(open|write|send|upload|test|record|screenshot|publish|commit|copy|start|log)/i.test(textBlob);
-    const hasProof = Boolean((ai?.proof_needed || '').trim());
-    const staleTopic = /(spy|trading|stock|options)/i.test(textBlob) && !/(spy|trading|stock|options)/i.test(stateBlob);
-    const tooLong = textBlob.split(/\s+/).filter(Boolean).length > 80;
-    const touchesState = state.outcomes.length === 0 || state.outcomes.some((o) => textBlob.includes(o.title.toLowerCase().slice(0, 20))) || textBlob.includes('focus') || textBlob.includes('plan');
-    const aiInvalid = !touchesState || !hasConcreteVerb || !hasProof || staleTopic || tooLong;
-    const fallbackMove =
-      state.active_focus_block?.status === 'active'
-        ? {
-            next_move: 'Finish current focus action.',
-            go_here: 'Current Mission card',
-            write_make_do: state.active_focus_block.current_action || 'Complete one action now.',
-            proof_needed: state.outcomes.find((o) => o.id === state.active_focus_block?.outcome_id)?.proof_required || 'Screenshot or note.',
-            timebox_minutes: 5,
-            avoid: 'Do not switch tasks.',
-            suggested_action: 'start_focus' as const
-          }
-        : state.outcomes.find((o) => o.status === 'planned' || o.status === 'selected')
-          ? {
-              next_move: 'Start highest leverage planned outcome.',
-              go_here: 'Next Up outcomes',
-              write_make_do: state.outcomes.filter((o) => o.status !== 'done').sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0]?.first_action || 'Start the top planned outcome.',
-              proof_needed: 'Log one concrete proof item.',
-              timebox_minutes: 25,
-              avoid: 'Do not over-plan.',
-              suggested_action: 'start_focus' as const
-            }
-          : state.outcomes.some((o) => o.status === 'done' && !o.proof_provided)
-            ? {
-                next_move: 'Log proof for completed work.',
-                go_here: 'Completed today section',
-                write_make_do: 'Open completed outcome and attach proof.',
-                proof_needed: 'Screenshot, link, or short note.',
-                timebox_minutes: 5,
-                avoid: 'Do not skip proof.',
-                suggested_action: 'log_proof' as const
-              }
-            : state.outcomes.length && !state.debrief
-              ? {
-                  next_move: 'Close day and save debrief.',
-                  go_here: 'Close day button',
-                  write_make_do: 'Generate debrief and set tomorrow first move.',
-                  proof_needed: 'Debrief saved with next move.',
-                  timebox_minutes: 5,
-                  avoid: 'Do not end day without debrief.',
-                  suggested_action: 'close_day' as const
-                }
-              : {
-                  next_move: 'Plan today now.',
-                  go_here: 'Plan today modal',
-                  write_make_do: 'Generate top 3 outcomes.',
-                  proof_needed: 'Three outcomes with proof requirement.',
-                  timebox_minutes: 10,
-                  avoid: 'Do not start random tasks.',
-                  suggested_action: 'none' as const
-                };
-    const sanitizedAi: DailyAIResponse = aiInvalid
-      ? {
-          ...ai,
-          ...fallbackMove,
-          direct_answer: 'Using local next move.',
-          next_action: fallbackMove.write_make_do,
-          suggested_focus_minutes: fallbackMove.timebox_minutes,
-          focus_minutes: fallbackMove.timebox_minutes,
-          drift_warning: '',
-          priority_reason: 'Local fallback selected due to low AI relevance.'
-        }
-      : ai;
-    const assistant: DailyCoachMessage = {
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      content: sanitizedAi?.direct_answer || 'Pick one concrete next action and begin now.',
-      created_at: nowIso(),
-      ai: sanitizedAi
-    };
-      updateState((prev) => ({ ...prev, coach_messages: [...prev.coach_messages, assistant].slice(-80) }));
-    } finally {
-      setIsCoachLoading(false);
-    }
-  }
-
   function debriefToMarkdown(debrief: DailyDebrief) {
     return `# Daily Debrief
 
@@ -1180,73 +1066,6 @@ Money: ${debrief.money_score}/100
         : (state.proof_count_today || 0) > 0 && !state.report ? 'prove'
           : state.report ? 'level'
             : 'reflect';
-  const coachRecommendation = state.coach_messages.filter((m) => m.role === 'assistant').slice(-1)[0]?.ai;
-  const localRecommendation = useMemo(() => {
-    const activeMission =
-      state.outcomes.find((o) => o.id === state.active_focus_block?.outcome_id) ||
-      state.outcomes.find((o) => o.status === 'active');
-    if (state.active_focus_block?.status === 'active') {
-      return {
-        move: activeMission?.title || 'Finish current mission.',
-        where: 'Current Mission card',
-        do: state.active_focus_block.current_action || activeMission?.first_action || 'Complete one action now.',
-        proof: activeMission?.proof_required || 'Screenshot or note',
-        timebox: 10,
-        avoid: 'Do not context switch.'
-      };
-    }
-    if (activeMission) {
-      return {
-        move: activeMission.title,
-        where: 'Current Mission card',
-        do: activeMission.first_action || activeMission.title,
-        proof: activeMission.proof_required || 'One proof item',
-        timebox: Math.min(30, Math.max(10, Math.round((activeMission.estimated_minutes || 30) / 2))),
-        avoid: activeMission.risk || 'Avoid context switching.'
-      };
-    }
-    const planned = [...state.outcomes].filter((o) => o.status === 'planned' || o.status === 'selected').sort((a, b) => (b.leverage_score || 0) - (a.leverage_score || 0))[0];
-    if (planned) {
-      const h = state.plan_next_move_hint;
-      return {
-        move: h?.move || planned.title,
-        where: h?.where || 'Next Up section',
-        do: planned.first_action || h?.do || planned.title,
-        proof: planned.proof_required || 'One proof item',
-        timebox: h?.timebox || 25,
-        avoid: h?.avoid || planned.risk || 'Avoid over-planning.'
-      };
-    }
-    const missingProof = state.outcomes.find((o) => o.status === 'done' && !o.proof_provided);
-    if (missingProof) {
-      return {
-        move: 'Log proof for completed work.',
-        where: 'Completed today section',
-        do: `Add proof for ${missingProof.title}`,
-        proof: missingProof.proof_required || 'Screenshot or note',
-        timebox: 5,
-        avoid: 'Do not skip proof.'
-      };
-    }
-    if (state.outcomes.length > 0 && !state.debrief) {
-      return {
-        move: 'Close day and save debrief.',
-        where: 'Close day button',
-        do: 'Generate debrief and set tomorrow move.',
-        proof: 'Debrief saved',
-        timebox: 5,
-        avoid: 'Do not end day open-loop.'
-      };
-    }
-    return {
-      move: 'Plan today now.',
-      where: 'Plan Builder',
-      do: 'Describe your real goal and build a work-type-aware plan.',
-      proof: 'Three proof-backed outcomes',
-      timebox: 10,
-      avoid: 'Do not start random tasks.'
-    };
-  }, [state, dailyGoalsInput]);
   const activeMission =
     state.outcomes.find((o) => o.id === state.active_focus_block?.outcome_id) ||
     state.outcomes.find((o) => o.status === 'active') ||
@@ -1262,22 +1081,26 @@ Money: ${debrief.money_score}/100
       hasProof: Boolean(o.proof_provided?.trim())
     }));
 
-  function buildMissionDraft(outcome: DailyOutcome | null) {
-    if (!outcome) return 'No active mission. Plan today first.';
-    const title = outcome.title.toLowerCase();
-    if (/detail|car|route|customer|van/.test(title)) {
-      return `ACTION\nConfirm today's route and customer order now.\n\nMAKE\nCustomer text:\n"You're confirmed for today. I'll send an ETA before arrival."\n\nRoute checklist:\n- List all addresses in final order\n- Confirm travel buffer between jobs\n- Confirm service duration by job\n\nProof checklist:\n- Photo of route sheet\n- Photo of loaded van\n- First before/after pair\n\nReview request:\n"Thanks again. If you loved it, could you leave a quick review?"\n\nMaintenance offer:\n"I can lock your next maintenance slot now."\n\nNEXT\nSend customer #1 ETA message.`;
-    }
-    if (/sales|outreach|lead|prospect|detailing|customer/.test(title)) {
-      return `ACTION\nOpen Google Maps and search "luxury apartments near Seattle" (or your target area) to find prospects.\n\nMAKE\nTracker columns:\nName | Source | Contact | Fit Reason | Message Sent | Follow-up Date\n\nSample rows:\n- Harbor View Apartments | Google Maps | Leasing office number | 250+ tenant vehicles | No | Wed\n- Apex Auto Spa lot manager | Instagram | @apexautospa | Nearby partner lead | No | Thu\n- Northgate HOA manager | Yelp | Contact form | Resident vehicle volume | No | Fri\n- Riverview Condos | Facebook Groups | Group DM | Active local resident group | No | Fri\n- Uptown Realty fleet | Google Maps | Office email | Manages multiple cars | No | Mon\n\nMESSAGE\n"Hey — I run a mobile detailing service in the Seattle area. I'm looking for a few vehicles to feature this week and can come to you. Want a quick quote?"\n\nFOLLOW-UP\n"Quick follow-up in case this got buried. Want me to send pricing and available times?"\n\nPROOF\nScreenshot tracker with 10 prospects or sent DM screenshots.\n\nNEXT\nSend 5 messages.`;
-    }
-    if (/hardware|esp|arduino|atom|flash|firmware/.test(title)) {
-      return `ACTION\nRun serial and wiring checks now.\n\nMAKE\nSerial/debug checklist:\n- Detect board port\n- Flash heartbeat sketch\n- Verify serial output every 5-10s\n\nWiring/setup proof:\n- Photo of wiring and board power\n- Serial monitor screenshot\n\nAPI test command:\ncurl -s "$BASE_URL/api/robot/state?robot_id=atom-s3r-001" -H "x-taskpilot-robot-key: YOUR_KEY"\n\nNEXT\nRun heartbeat POST and verify last_seen updates.`;
-    }
-    if (/build|feature|deploy|component|bug/.test(title)) {
-      return `ACTION\nImplement the smallest shippable change now.\n\nMAKE\nImplementation checklist:\n- Confirm target file and scope\n- Apply minimal diff\n- Verify behavior in UI/API\n\nTest commands:\n- npm run build\n- npm run dev\n\nDeployment proof checklist:\n- Build success output\n- Screenshot of changed behavior\n- API response sample if backend changed\n\nNEXT\nWrite a 3-line release note and ship.`;
-    }
-    return `ACTION\n${outcome.first_action || 'Start the first concrete action.'}\n\nMAKE\nChecklist:\n- ${outcome.checklist?.[0] || 'Create first concrete artifact'}\n- ${outcome.checklist?.[1] || 'Execute one visible step'}\n- ${outcome.checklist?.[2] || 'Record status and follow-up'}\n\nPROOF\n${outcome.proof_required || 'Log one proof item.'}\n\nNEXT\nMark complete or move to the next mission.`;
+  const copilotBusinessContext: CopilotBusinessContext = {
+    business_name: 'Suds Auto Salon',
+    service_area: 'Seattle / North Seattle / Snohomish County area',
+    offer: 'mobile auto detailing',
+    target_customer:
+      'car owners, busy professionals, families, high-income vehicle owners, small businesses with vehicles',
+    booking_link: '[booking link]',
+    tone: 'direct, premium, helpful'
+  };
+
+  function refreshCopilot(mode: CopilotMode) {
+    const output = buildCopilotExecutionOutput({
+      mode,
+      mission: activeMission,
+      dailyGoalContext: state.daily_goals || state.custom_context || dailyGoalsInput,
+      detectedWorkType: state.detected_work_type,
+      businessContext: copilotBusinessContext
+    });
+    setCopilotMode(mode);
+    setCopilotOutput(output);
   }
   const executionScore = Math.min(100, ((completedToday * 25) + Math.min(30, focusMinutesToday) + Math.min(20, (state.proof_count_today || 0) * 10)));
 
@@ -1289,8 +1112,15 @@ Money: ${debrief.money_score}/100
     return handler;
   }
 
-  const copilotLines = (copilotArtifact || `ACTION\n${localRecommendation.do}\n\nMAKE\n${buildMissionDraft(activeMission).split('\n\nMAKE\n')[1]?.split('\n\nPROOF')[0] || 'Use mission checklist template.'}\n\nPROOF\n${localRecommendation.proof}\n\nNEXT\n${localRecommendation.move}`).split('\n');
-  const copilotPreview = copilotLines.slice(0, 6).join('\n');
+  const effectiveCopilot =
+    copilotOutput ||
+    buildCopilotExecutionOutput({
+      mode: copilotMode,
+      mission: activeMission,
+      dailyGoalContext: state.daily_goals || state.custom_context || dailyGoalsInput,
+      detectedWorkType: state.detected_work_type,
+      businessContext: copilotBusinessContext
+    });
 
   return (
     <main className="max-w-full overflow-x-hidden">
@@ -1575,65 +1405,86 @@ Money: ${debrief.money_score}/100
           <div id="copilot-card" className="order-2 block min-w-0 max-w-full xl:order-3">
             <NextMovePanel>
               <h2 className="mb-1 text-sm font-bold uppercase tracking-widest text-slate-400">Copilot</h2>
-              <p className="mb-2 text-xs text-slate-500">Helps you finish the current mission.</p>
-              <div className="mb-2 flex flex-wrap gap-2">
-                <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('action')}>Next action</button>
-                <button className={`btn-secondary btn-sm ${copilotMode === 'draft' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('draft')}>Draft it</button>
-                <button className={`btn-secondary btn-sm ${copilotMode === 'blocked' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => setCopilotMode('blocked')}>Blocked</button>
-              </div>
-              <div className="mb-2 flex flex-wrap gap-2">
-                <button className="btn-primary btn-sm" onClick={() => {
-                  setCopilotMode('action');
-                  setCopilotArtifact(`ACTION\n${localRecommendation.do}\n\nPROOF\n${localRecommendation.proof}\n\nNEXT\n${localRecommendation.move}`);
-                }}>Give me the next action</button>
-                <button className="btn-secondary btn-sm" onClick={() => {
-                  setCopilotMode('draft');
-                  setCopilotArtifact(buildMissionDraft(activeMission));
-                }}>Draft it for me</button>
-                <button className="btn-secondary btn-sm" onClick={() => {
-                  setCopilotMode('blocked');
-                  setCopilotArtifact(`ACTION\nName the blocker in one line.\n\nMAKE\nBlocked because: ____\nTime lost: ____\nSuggested fix: ____\nSmaller next action: ____\n\nPROOF\nScreenshot after unblocked step.\n\nNEXT\nRun the smaller next action for 10 minutes.`);
-                  if (activeMission) openBlockedModal(activeMission.id);
-                }}>I&apos;m blocked</button>
-              </div>
-              <div className="mb-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-xs leading-relaxed text-slate-200 whitespace-pre-wrap break-words">
-                {copilotExpanded
-                  ? (copilotArtifact || `ACTION\n${localRecommendation.do}\n\nMAKE\n${buildMissionDraft(activeMission).split('\n\nMAKE\n')[1]?.split('\n\nPROOF')[0] || 'Use mission checklist template.'}\n\nPROOF\n${localRecommendation.proof}\n\nNEXT\n${localRecommendation.move}`)
-                  : copilotPreview}
-              </div>
-              {copilotLines.length > 6 && (
-                <button className="btn-ghost btn-sm mb-2 self-start" onClick={() => setCopilotExpanded((v) => !v)}>
-                  {copilotExpanded ? 'Show less' : 'Details'}
-                </button>
-              )}
+              <p className="mb-2 text-xs text-slate-500">Produces execution assets for the current mission.</p>
               <div className="mb-3 flex flex-wrap gap-2">
-                <button className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(copilotArtifact || buildMissionDraft(activeMission))}>Copy draft</button>
+                <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('action')}>Next action</button>
+                <button className={`btn-secondary btn-sm ${copilotMode === 'draft' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('draft')}>Draft it</button>
+                <button className={`btn-secondary btn-sm ${copilotMode === 'blocked' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('blocked')}>Blocked</button>
+              </div>
+
+              <div className="space-y-2 rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-sm text-slate-200">
+                <p className="font-semibold text-white">{effectiveCopilot.title}</p>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Action</p>
+                  <p className="break-words">{effectiveCopilot.immediate_action}</p>
+                </div>
+                {!!effectiveCopilot.where_to_go?.length && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Where</p>
+                    <ul className="list-inside list-disc text-sm">
+                      {effectiveCopilot.where_to_go.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(effectiveCopilot.make_this || effectiveCopilot.template) && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Make / Template</p>
+                    {effectiveCopilot.make_this ? <p className="break-words whitespace-pre-wrap">{effectiveCopilot.make_this}</p> : null}
+                    {effectiveCopilot.template ? <p className="mt-1 break-words whitespace-pre-wrap rounded-md border border-slate-700 bg-slate-900/60 p-2">{effectiveCopilot.template}</p> : null}
+                  </div>
+                )}
+                {!!effectiveCopilot.checklist?.length && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Checklist</p>
+                    <ul className="list-inside list-disc text-sm">
+                      {effectiveCopilot.checklist.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Proof</p>
+                  <p className="break-words">{effectiveCopilot.proof_required}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Next</p>
+                  <p className="break-words">{effectiveCopilot.next_after_proof}</p>
+                </div>
+              </div>
+
+              {!!effectiveCopilot.copyable_artifacts?.length && (
+                <div className="mt-3 space-y-2">
+                  {effectiveCopilot.copyable_artifacts.map((artifact) => (
+                    <div key={artifact.label} className="rounded-lg border border-slate-700 bg-slate-950/50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{artifact.label}</p>
+                        <button className="btn-secondary btn-sm h-10" onClick={() => navigator.clipboard.writeText(artifact.content)}>Copy</button>
+                      </div>
+                      <p className="whitespace-pre-wrap break-words text-sm text-slate-200">{artifact.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="btn-secondary btn-sm"
+                  onClick={() =>
+                    navigator.clipboard.writeText(
+                      effectiveCopilot.copyable_artifacts?.[0]?.content ||
+                        `${effectiveCopilot.immediate_action}\n\n${effectiveCopilot.template || ''}`.trim()
+                    )
+                  }
+                >
+                  Copy artifact
+                </button>
                 <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeMission?.id || state.active_outcome_id))}>Log proof</button>
                 <button className="btn-secondary btn-sm" onClick={safeAction('Mark complete', () => activeMission && completeOutcome(activeMission.id))}>Mark complete</button>
               </div>
-              <button className="btn-ghost btn-sm mb-2 self-start" onClick={() => setShowCoachHistory((prev) => !prev)}>{showCoachHistory ? 'Hide history' : 'Show history'}</button>
-              {showCoachHistory && (
-                <div className="min-h-0 max-h-[320px] flex-1 space-y-2 overflow-y-auto rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-[15px] leading-7">
-                  {state.coach_messages.map((m) => (
-                    <div key={m.id} className={`rounded-xl p-3 ${m.role === 'assistant' ? 'bg-slate-800/80 text-slate-100' : 'bg-amber-400/10 text-amber-100'}`}>
-                      <p className="text-xs uppercase tracking-widest text-slate-400">{m.role}</p>
-                      <p>{m.content}</p>
-                    </div>
-                  ))}
-                  {!state.coach_messages.length && <p className="text-sm text-slate-400">No coach messages yet. Ask what to do first.</p>}
-                </div>
-              )}
-              {!showCoachHistory && (
-                <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3 text-sm text-slate-400">
-                  Copilot stays focused on current mission. Open history only when needed.
-                </div>
-              )}
-              <div className="mt-3 flex gap-2 min-w-0">
-                <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask if blocked or unclear..." onKeyDown={(e) => e.key === 'Enter' && void sendCoachMessage()} />
-                <button className="btn-primary" onClick={safeAction('Send coach message', () => void sendCoachMessage())}>Send</button>
-              </div>
             </NextMovePanel>
-            
           </div>
         </DailyPlanPreview>}
 
