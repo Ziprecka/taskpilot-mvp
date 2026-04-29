@@ -14,6 +14,7 @@ import type {
 
 const WORK_TYPE_LABELS: Record<DetectedWorkType, string> = {
   service_day: 'Service Day',
+  service_business_sales: 'Service Business Sales',
   client_work_day: 'Client Work Day',
   sales_day: 'Sales Day',
   hardware_setup: 'Hardware Setup',
@@ -26,6 +27,12 @@ const WORK_TYPE_LABELS: Record<DetectedWorkType, string> = {
 };
 
 const BAD_GENERIC_PHRASES = [
+  'rewrite your goal',
+  'define your goal',
+  'make one concrete outcome',
+  'execute one concrete outcome',
+  'second priority outcome',
+  'do one task',
   'start a 5-minute first move',
   'make progress',
   'work on this',
@@ -44,6 +51,7 @@ export function detectWorkType(raw: string): DetectedWorkType {
   const s = raw.toLowerCase();
   if (!s.trim()) return 'custom';
   const has = (re: RegExp) => re.test(s);
+  if (has(/\b(leads?|customers?|bookings?|detailing|mobile detailing|quote requests?|follow up|upsell|maintenance|yelp|instagram leads?|facebook groups?)\b/)) return 'service_business_sales';
   if (has(/\b(detail|detailing|mobile detailing|car detail|suds auto salon|appointment|before\/after|route day|upsell|review ask)\b/)) return 'service_day';
   if (has(/\b(client|deliverable|invoice|scope|brief|revision)\b/)) return 'client_work_day';
   if (has(/\b(beta users?|outreach|prospect|lead|dm|cold email|sales)\b/)) return 'sales_day';
@@ -76,7 +84,7 @@ function outcomeBase(partial: Omit<DailyOutcome, 'id' | 'created_at' | 'updated_
 }
 
 function pickCategory(work: DetectedWorkType): DailyOutcome['category'] {
-  if (work === 'sales_day' || work === 'service_day' || work === 'client_work_day') return 'money';
+  if (work === 'sales_day' || work === 'service_day' || work === 'service_business_sales' || work === 'client_work_day') return 'money';
   if (work === 'learning') return 'learning';
   if (work === 'admin') return 'admin';
   if (work === 'personal') return 'health';
@@ -88,7 +96,7 @@ function leverageFor(work: DetectedWorkType, idx: number): number {
   const base =
     work === 'custom'
       ? 6
-      : work === 'service_day' || work === 'sales_day'
+      : work === 'service_day' || work === 'sales_day' || work === 'service_business_sales'
         ? 9
         : 8;
   return Math.min(10, Math.max(4, base - idx));
@@ -110,6 +118,77 @@ function parseCarCount(raw: string): number {
 
 function classifyGoal(raw: string): DetectedWorkType {
   return detectWorkType(raw);
+}
+
+type GoalExpansion = {
+  interpreted_goal: string;
+  work_type: DetectedWorkType;
+  target_result: string;
+  likely_tools: string[];
+  proof_examples: string[];
+  assumption: string;
+};
+
+export function expandVagueGoal(goal: string, userContext?: string): GoalExpansion {
+  const raw = `${goal} ${userContext || ''}`.trim().toLowerCase();
+  if (/\bfind new leads for details\b|\bdetailing\b.*\bleads?\b|\bleads?\b.*\bdetail/i.test(raw)) {
+    return {
+      interpreted_goal: 'Generate new mobile detailing leads and start outreach.',
+      work_type: 'service_business_sales',
+      target_result: '25 prospects found, 5 contacted, proof logged.',
+      likely_tools: ['Google Maps', 'Yelp', 'Instagram', 'Facebook Groups', 'Google Sheets'],
+      proof_examples: ['Prospect tracker screenshot', 'Sent DM screenshot', 'Lead list export'],
+      assumption: 'You want more mobile detailing leads.'
+    };
+  }
+  if (/\bget more customers\b/.test(raw)) {
+    return {
+      interpreted_goal: 'Run a local outreach push to start customer conversations.',
+      work_type: 'service_business_sales',
+      target_result: 'Prospect list + sent outreach + follow-up path.',
+      likely_tools: ['Google Maps', 'Instagram', 'Sheets'],
+      proof_examples: ['Outreach screenshots', 'Tracker rows'],
+      assumption: 'You want customer conversations this week.'
+    };
+  }
+  if (/\bmake money today\b/.test(raw)) {
+    return {
+      interpreted_goal: 'Pick one near-term revenue action, send offers/messages, and log proof.',
+      work_type: 'sales_day',
+      target_result: 'Offers sent + proof logged.',
+      likely_tools: ['DM', 'Email', 'Sheets'],
+      proof_examples: ['Sent proof', 'Reply capture'],
+      assumption: 'You need immediate revenue actions.'
+    };
+  }
+  if (/\bwork on my app\b/.test(raw)) {
+    return {
+      interpreted_goal: 'Ship one visible app improvement, test it, deploy it, and record proof.',
+      work_type: 'app_build',
+      target_result: 'One shipped change with build + screenshot proof.',
+      likely_tools: ['IDE', 'npm', 'Vercel'],
+      proof_examples: ['Build output', 'UI screenshot'],
+      assumption: 'You want one concrete shipped improvement.'
+    };
+  }
+  if (/\bfix my robot\b/.test(raw)) {
+    return {
+      interpreted_goal: 'Identify robot failure, patch one code path, and verify with proof.',
+      work_type: 'hardware_setup',
+      target_result: 'Repro + fix + verification proof.',
+      likely_tools: ['Serial monitor', 'Robot API', 'IDE'],
+      proof_examples: ['API response', 'Serial screenshot'],
+      assumption: 'You want one reproducible robot behavior fixed.'
+    };
+  }
+  return {
+    interpreted_goal: goal.trim() || 'Create a practical today plan with proof.',
+    work_type: detectWorkType(goal),
+    target_result: 'Three concrete missions with proof.',
+    likely_tools: ['TaskPilot'],
+    proof_examples: ['Screenshot', 'Checklist completion'],
+    assumption: 'Interpreted from your goal text.'
+  };
 }
 
 function extractEntities(raw: string): string[] {
@@ -150,7 +229,7 @@ function scoreSpecificity(raw: string, outcomes: DailyOutcome[], work: DetectedW
   if (/\bphoto|screenshot|sheet|message|route|checklist|calendar|device manager|google sheets\b/.test(text)) score += 2;
   if (/\bjob|vehicle|route|timeline|block|step|order|today|tomorrow\b/.test(text)) score += 2;
   if (!BAD_GENERIC_PHRASES.some((p) => text.includes(p))) score += 2;
-  if (work === 'service_day' && /\bvehicle|customer|route|van|review\b/.test(text)) score += 2;
+  if ((work === 'service_day' || work === 'service_business_sales') && /\bvehicle|customer|route|van|review|lead|prospect|outreach\b/.test(text)) score += 2;
   if (score >= 10) return { score, label: 'strong' };
   if (score >= 7) return { score, label: 'good' };
   return { score, label: 'weak' };
@@ -158,6 +237,7 @@ function scoreSpecificity(raw: string, outcomes: DailyOutcome[], work: DetectedW
 
 function choosePlanTemplate(work: DetectedWorkType): string {
   if (work === 'service_day') return 'service_operating_plan';
+  if (work === 'service_business_sales') return 'service_business_sales_plan';
   if (work === 'sales_day') return 'sales_execution_plan';
   if (work === 'hardware_setup') return 'hardware_setup_plan';
   if (work === 'app_build') return 'build_day_plan';
@@ -630,6 +710,125 @@ function buildSalesPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { n
   };
 }
 
+function buildServiceBusinessSalesPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
+  const outcomes: DailyOutcome[] = [
+    outcomeBase({
+      title: 'Build a 25-lead prospect list',
+      objective: 'Create a real list of people or businesses likely to book mobile detailing.',
+      why_it_matters: 'A real list is the base for actual outreach and bookings.',
+      category: 'money',
+      priority: 1,
+      status: 'planned',
+      estimated_minutes: 45,
+      actual_minutes: 0,
+      proof_required: 'Screenshot or CSV of tracker with at least 10 prospects.',
+      proof_provided: '',
+      first_action: 'Open Google Maps/Yelp/Instagram and find 10 local prospects who own vehicles or manage customer vehicles.',
+      checklist: ['Search 3 lead sources', 'Add name/account/business', 'Add contact method', 'Add reason they fit', 'Mark DM/email/call status'],
+      done_when: '10+ real prospects are logged.',
+      short_title: '25-lead list',
+      leverage_score: 9,
+      money_potential: 'high',
+      urgency: 'high',
+      effort: 'medium',
+      value_score: 9,
+      quality_score: 9,
+      risk: 'Low-fit leads waste outreach time.'
+    }),
+    outcomeBase({
+      title: 'Send 5 targeted outreach messages',
+      objective: 'Start real sales conversations instead of only collecting names.',
+      why_it_matters: 'Conversations create quotes and bookings.',
+      category: 'money',
+      priority: 2,
+      status: 'planned',
+      estimated_minutes: 40,
+      actual_minutes: 0,
+      proof_required: 'Screenshots of sent messages or tracker rows marked sent.',
+      proof_provided: '',
+      first_action: 'Use the outreach template and send 5 personalized messages.',
+      checklist: ['Choose 5 best-fit leads', 'Personalize first line', 'Send message', 'Log sent status', 'Set follow-up date'],
+      done_when: '5 messages are sent and tracked.',
+      short_title: 'Send 5 messages',
+      leverage_score: 9,
+      money_potential: 'high',
+      urgency: 'high',
+      effort: 'medium',
+      value_score: 9,
+      quality_score: 8,
+      risk: 'Generic messages lower reply rate.'
+    }),
+    outcomeBase({
+      title: 'Create follow-up and booking path',
+      objective: 'Turn replies into quotes, bookings, reviews, or maintenance offers.',
+      why_it_matters: 'Follow-up converts replies into revenue.',
+      category: 'money',
+      priority: 3,
+      status: 'planned',
+      estimated_minutes: 35,
+      actual_minutes: 0,
+      proof_required: 'Templates saved in tracker or TaskPilot.',
+      proof_provided: '',
+      first_action: 'Write one reply template for interested leads and one follow-up template for no response.',
+      checklist: ['Draft interested reply', 'Draft no-response follow-up', 'Add booking link', 'Add next follow-up date'],
+      done_when: 'Follow-up system is ready.',
+      short_title: 'Follow-up path',
+      leverage_score: 8,
+      money_potential: 'high',
+      urgency: 'medium',
+      effort: 'low',
+      value_score: 8,
+      quality_score: 8,
+      risk: 'No follow-up means lost warm leads.'
+    })
+  ];
+
+  const message_templates: MessageTemplate[] = [
+    { id: 'sb1', label: 'DM opener', body: 'Hey [Name] — I run a mobile detailing service nearby. I can come to you this week. Want a quick quote?' },
+    { id: 'sb2', label: 'Follow-up', body: 'Quick follow-up in case this got buried — want me to send pricing/options?' },
+    { id: 'sb3', label: 'Quote handoff', body: 'Based on your vehicle, estimated range is [range]. If this works, pick a slot here: [booking link].' },
+    { id: 'sb4', label: 'Booking link', body: 'Book here: [booking link]. I’ll confirm your address and arrival window right after.' }
+  ];
+
+  const next_move: DailyNextMoveResponse = {
+    direct_answer: 'Start by building the first 10 real prospects.',
+    next_move: 'Build first 10 prospect rows.',
+    go_here: 'Google Maps/Yelp/Instagram + tracker',
+    write_make_do: 'Open your tracker and fill 10 rows with name, source, contact, and fit reason.',
+    proof_needed: 'Screenshot of tracker with 10 rows.',
+    avoid: 'Rewriting your goal instead of prospecting.',
+    suggested_action: 'start_focus',
+    next_action: 'Find and log prospect #1 now.',
+    suggested_focus_minutes: 15,
+    priority_reason: 'List quality drives outreach results.',
+    drift_warning: ''
+  };
+
+  return {
+    detected_work_type: 'service_business_sales',
+    interpreted_goal: 'Generate new mobile detailing leads and start outreach.',
+    plan_title: 'Service business lead generation sprint',
+    plan_summary: 'Build leads, send outreach, and set follow-up with proof.',
+    assumptions: [
+      'You want more mobile detailing leads.',
+      'You need a prospect list and sent outreach proof.'
+    ],
+    clarifying_questions: [],
+    sections: [
+      { id: 'original', title: 'Original', items: [raw || 'No goal provided'] },
+      { id: 'interpreted', title: 'TaskPilot interpreted this as', items: ['Generate new mobile detailing leads and start outreach.'] },
+      { id: 'assumption', title: 'Assumptions', items: ['You want potential customers for your detailing service.', 'Proof should be tracker rows, sent DMs, or screenshots.'] },
+      { id: 'missions', title: 'Missions', items: outcomes.map((o) => o.title) }
+    ],
+    daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
+    message_templates,
+    prospect_columns: ['Name', 'Source', 'Contact', 'Fit Reason', 'Message Sent', 'Follow-up Date'],
+    success_metrics: ['10 prospects logged', '5 messages sent', 'Follow-up templates ready'],
+    next_move
+  };
+}
+
 function buildAppBuildPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
   const outcomes: DailyOutcome[] = [
     outcomeBase({
@@ -970,9 +1169,10 @@ function buildAdminPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { n
 
 function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
   const cat = pickCategory(work);
+  const expanded = expandVagueGoal(raw);
   const outcomes: DailyOutcome[] = [
     outcomeBase({
-      title: `Execute one concrete outcome from: ${raw.slice(0, 120)}${raw.length > 120 ? '…' : ''}`,
+      title: 'Define today\'s target artifact',
       why_it_matters: 'Execution beats intent.',
       category: cat,
       priority: 1,
@@ -981,8 +1181,7 @@ function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilder
       actual_minutes: 0,
       proof_required: 'Timestamped artifact (screenshot, export, or message) proving completion.',
       proof_provided: '',
-      first_action:
-        'Rewrite your goal into one measurable sentence with a physical/digital deliverable named explicitly.',
+      first_action: `Assumption: ${expanded.assumption} Open your main tool and create the first concrete artifact now.`,
       value_score: 7,
       quality_score: 7,
       leverage_score: 7,
@@ -991,7 +1190,7 @@ function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilder
       effort: 'medium'
     }),
     outcomeBase({
-      title: 'Second priority outcome (only if time permits)',
+      title: 'Ship the first proof-backed result',
       why_it_matters: 'Backup keeps momentum if first finishes early.',
       category: cat,
       priority: 2,
@@ -1000,7 +1199,7 @@ function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilder
       actual_minutes: 0,
       proof_required: 'Artifact or log entry.',
       proof_provided: '',
-      first_action: 'List blocker risks for outcome #1 in 2 bullets — decide if #2 is still worth same day.',
+      first_action: 'Run the first action now and capture one visible proof artifact.',
       value_score: 6,
       quality_score: 6,
       leverage_score: 5,
@@ -1011,14 +1210,14 @@ function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilder
   ];
 
   const next_move: DailyNextMoveResponse = {
-    direct_answer: 'Make the goal measurable before working.',
-    next_move: 'Sharpen the goal.',
+    direct_answer: 'Start the first inferred action and capture proof.',
+    next_move: 'Start first execution block.',
     go_here: 'Notes',
-    write_make_do: 'Replace vague verbs with one deliverable name + proof format.',
-    proof_needed: 'Written acceptance sentence.',
-    avoid: 'Starting without naming proof.',
+    write_make_do: 'Create one real artifact tied to your interpreted goal.',
+    proof_needed: 'Screenshot of first concrete artifact.',
+    avoid: 'Planning loops without output.',
     suggested_action: 'start_focus',
-    next_action: 'Write acceptance + proof now.',
+    next_action: 'Execute the first task now.',
     suggested_focus_minutes: 10,
     priority_reason: 'Clarity reduces rework.',
     drift_warning: ''
@@ -1026,9 +1225,10 @@ function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilder
 
   return {
     detected_work_type: work,
-    plan_title: 'Focused execution',
-    plan_summary: raw.trim() ? `Plan derived from: ${raw.slice(0, 200)}` : 'Define your primary outcome and proof.',
-    assumptions: ['You have ~2–4 hours of deep work available'],
+    interpreted_goal: expanded.interpreted_goal,
+    plan_title: "Today's plan",
+    plan_summary: raw.trim() ? `TaskPilot interpreted: ${raw.slice(0, 200)}` : 'TaskPilot inferred a practical execution plan.',
+    assumptions: [expanded.assumption, 'You can edit missions after this first useful draft.'],
     clarifying_questions: ['What single artifact proves you won the day?'],
     daily_outcomes: outcomes,
     today_missions: outcomes.map(toMission),
@@ -1112,6 +1312,7 @@ function workflowFromPlan(input: PlanBuilderInput, output: Omit<PlanBuilderOutpu
 /** Core planner: deterministic templates + work-type routing */
 export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
   const raw = input.raw_goal.trim();
+  const expanded = expandVagueGoal(raw, input.context);
   const classified = classifyGoal(raw + ' ' + (input.context || ''));
   const work = input.detected_work_type_override || classified;
   const entities = extractEntities(raw);
@@ -1120,6 +1321,9 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
   let partial: Omit<PlanBuilderOutput, 'playbook'> & { next_move: DailyNextMoveResponse };
 
   switch (work) {
+    case 'service_business_sales':
+      partial = buildServiceBusinessSalesPlan(raw);
+      break;
     case 'service_day':
       partial = buildServicePlan(raw, input.time_horizon);
       break;
@@ -1152,6 +1356,10 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
   }
 
   partial.detected_work_type = work;
+  if (!partial.interpreted_goal) partial.interpreted_goal = expanded.interpreted_goal;
+  if (partial.assumptions && expanded.assumption && !partial.assumptions.some((a) => a.toLowerCase().includes(expanded.assumption.toLowerCase()))) {
+    partial.assumptions = [expanded.assumption, ...partial.assumptions].slice(0, 4);
+  }
   partial.extracted_entities = entities;
   const specificity = scoreSpecificity(raw, partial.daily_outcomes || [], work);
   partial.specificity_score = specificity.score;
@@ -1176,5 +1384,17 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
 
   return result;
 }
+
+/** Dev-only sanity prompts for planner regression checks */
+export const PLANNER_REGRESSION_TESTS = [
+  'find new leads for details',
+  'get more customers for my detailing business',
+  'successful 3 car detail day tomorrow',
+  'fix my atom robot screen',
+  'set up my lotto bitcoin miner',
+  'ship one improvement to TaskPilot',
+  'make money today',
+  'clean up unpaid invoices'
+] as const;
 
 export { WORK_TYPE_LABELS };

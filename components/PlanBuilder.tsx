@@ -8,6 +8,7 @@ import type { DailyOutcome } from '@/types/workflow';
 
 const WORK_TYPES: DetectedWorkType[] = [
   'service_day',
+  'service_business_sales',
   'client_work_day',
   'sales_day',
   'hardware_setup',
@@ -122,7 +123,7 @@ export function PlanBuilder({
       : 'What repeatable process do you want to turn into a playbook?';
   const sub =
     defaultMode === 'daily_execution'
-      ? 'Write messy goals. TaskPilot will turn them into outcomes, focus blocks, and proof.'
+      ? 'Write messy goals. TaskPilot interprets intent and turns them into proof-backed missions.'
       : 'Describe the real-world loop once. TaskPilot structures steps, proof, and reuse.';
 
   const EXAMPLES_SERVICE =
@@ -196,6 +197,17 @@ export function PlanBuilder({
       <h2 className="text-xl font-black">{preview.plan_title}</h2>
       <p className="mt-1 text-sm text-slate-400">{preview.plan_summary}</p>
 
+      <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
+        <p className="font-semibold text-slate-300">Original</p>
+        <p>{goal || 'No goal provided.'}</p>
+        {preview.interpreted_goal ? (
+          <>
+            <p className="mt-2 font-semibold text-slate-300">TaskPilot interpreted this as</p>
+            <p>{preview.interpreted_goal}</p>
+          </>
+        ) : null}
+      </div>
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="badge">Detected: {workTypeLabel(preview.detected_work_type)}</span>
         <select
@@ -230,7 +242,7 @@ export function PlanBuilder({
 
       {preview.assumptions?.length ? (
         <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
-          <p className="font-semibold text-slate-300">Assumptions</p>
+          <p className="font-semibold text-slate-300">Working assumptions</p>
           <ul className="list-inside list-disc">
             {preview.assumptions.map((a) => (
               <li key={a}>{a}</li>

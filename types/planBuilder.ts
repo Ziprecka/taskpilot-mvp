@@ -3,6 +3,7 @@ import type { DailyAIResponse, DailyOutcome, Workflow } from '@/types/workflow';
 /** Work-type-aware planning for Today + Playbooks */
 export type DetectedWorkType =
   | 'service_day'
+  | 'service_business_sales'
   | 'client_work_day'
   | 'sales_day'
   | 'hardware_setup'
@@ -85,6 +86,7 @@ export type DailyNextMoveResponse = Pick<
 
 export type PlanBuilderOutput = {
   detected_work_type: DetectedWorkType;
+  interpreted_goal?: string;
   plan_title: string;
   plan_summary: string;
   assumptions: string[];
