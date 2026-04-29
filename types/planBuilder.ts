@@ -25,7 +25,9 @@ export type PlanBuilderInput = {
   mode: PlanBuilderMode;
   category: string;
   time_horizon: PlanTimeHorizon;
+  desired_outcome?: string;
   context?: string;
+  user_context?: string;
   constraints?: string;
   proof_preference?: ProofPreference;
   /** When user overrides auto-detection */
@@ -148,6 +150,7 @@ export type PlanBuilderOutput = {
   intent_conflict?: boolean;
   conflict_reason?: string;
   interpreted_goal?: string;
+  confidence?: 'low' | 'medium' | 'high';
   plan_title: string;
   plan_summary: string;
   assumptions: string[];
@@ -179,5 +182,10 @@ export type PlanBuilderOutput = {
   success_metrics?: string[];
   tools_needed?: string[];
   debug_checklist?: string[];
+  copilot_seed?: {
+    next_action: string;
+    draft_assets: string[];
+    likely_blockers: string[];
+  };
   next_move: DailyNextMoveResponse;
 };

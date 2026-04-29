@@ -20,6 +20,7 @@ import { TodayMissionQueue } from '@/components/daily/TodayMissionQueue';
 import { CurrentMissionPanel } from '@/components/daily/CurrentMissionPanel';
 import { NextMovePanel } from '@/components/daily/NextMovePanel';
 import { DailyTimeline } from '@/components/daily/DailyTimeline';
+import { CopilotCard } from '@/components/daily/CopilotCard';
 import { addRecentActivity } from '@/lib/activity';
 import { trackProductEvent } from '@/lib/productEvents';
 import { trackEvent } from '@/lib/trackEvent';
@@ -161,6 +162,7 @@ export default function DailyPage() {
   const [showCloseWarning, setShowCloseWarning] = useState(false);
   const [copilotMode, setCopilotMode] = useState<CopilotMode>('action');
   const [copilotState, setCopilotState] = useState<CopilotGeneratedState | null>(null);
+  const [planCopilotSeed, setPlanCopilotSeed] = useState<{ next_action: string; draft_assets: string[]; likely_blockers: string[] } | null>(null);
   const [userExecutionContext, setUserExecutionContext] = useState<UserExecutionContext | null>(null);
   const [showCompletedExpanded, setShowCompletedExpanded] = useState(false);
   const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
@@ -322,12 +324,15 @@ export default function DailyPage() {
     void trackEvent('daily_plan_accepted', { dayType: meta.detected_work_type, count: outcomes.length });
     awardXP(10, 'Plan created', 'small');
     pushToast('Daily plan accepted.');
+    setPlanCopilotSeed(meta.plan.copilot_seed || null);
+    setCopilotState(null);
     setPlanReplaceBuffer(null);
     setShowReplacePrompt(false);
   }
 
   function openPlanModal() {
     setDailyGoalsInput(state.daily_goals || '');
+    setCopilotState(null);
     setPlanBuilderModalOpen(true);
   }
 
@@ -1143,6 +1148,13 @@ Money: ${debrief.money_score}/100
       detectedWorkType: state.detected_work_type,
       userContext: userExecutionContext || undefined
     });
+    if (mode === 'draft' && planCopilotSeed?.draft_assets?.length) {
+      output.copyable_artifacts = [
+        ...(output.copyable_artifacts || []),
+        ...planCopilotSeed.draft_assets.map((asset, idx) => ({ label: `Seed asset ${idx + 1}`, content: asset }))
+      ];
+      output.immediate_action = planCopilotSeed.next_action || output.immediate_action;
+    }
     setCopilotMode(mode);
     setCopilotState({
       mission_id: missionId,
@@ -1461,90 +1473,22 @@ Money: ${debrief.money_score}/100
 
           <div id="copilot-card" className="order-2 block min-w-0 max-w-full xl:order-3">
             <NextMovePanel>
-              <h2 className="mb-1 text-sm font-bold uppercase tracking-widest text-slate-400">Copilot</h2>
-              <p className="mb-2 text-xs text-slate-500">Produces execution assets for the current mission.</p>
-              <div className="mb-3 flex flex-wrap gap-2">
-                <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('action')}>Next action</button>
-                <button className={`btn-secondary btn-sm ${copilotMode === 'draft' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('draft')}>Draft it</button>
-                <button className={`btn-secondary btn-sm ${copilotMode === 'blocked' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('blocked')}>Blocked</button>
-              </div>
-              {process.env.NODE_ENV !== 'production' && (
-                <p className="mb-2 text-[11px] text-slate-500">Copilot source: {effectiveCopilot.source || 'current_mission'}</p>
-              )}
-
-              <div className="space-y-2 rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-sm text-slate-200">
-                <p className="font-semibold text-white">{effectiveCopilot.title}</p>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Action</p>
-                  <p className="break-words">{effectiveCopilot.immediate_action}</p>
-                </div>
-                {!!effectiveCopilot.where_to_go?.length && (
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Where</p>
-                    <ul className="list-inside list-disc text-sm">
-                      {effectiveCopilot.where_to_go.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {(effectiveCopilot.make_this || effectiveCopilot.template) && (
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Make / Template</p>
-                    {effectiveCopilot.make_this ? <p className="break-words whitespace-pre-wrap">{effectiveCopilot.make_this}</p> : null}
-                    {effectiveCopilot.template ? <p className="mt-1 break-words whitespace-pre-wrap rounded-md border border-slate-700 bg-slate-900/60 p-2">{effectiveCopilot.template}</p> : null}
-                  </div>
-                )}
-                {!!effectiveCopilot.checklist?.length && (
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Checklist</p>
-                    <ul className="list-inside list-disc text-sm">
-                      {effectiveCopilot.checklist.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Proof</p>
-                  <p className="break-words">{effectiveCopilot.proof_required}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Next</p>
-                  <p className="break-words">{effectiveCopilot.next_after_proof}</p>
-                </div>
-              </div>
-
-              {!!artifactsToShow.length && (
-                <div className="mt-3 space-y-2">
-                  {artifactsToShow.map((artifact) => (
-                    <div key={artifact.label} className="rounded-lg border border-slate-700 bg-slate-950/50 p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{artifact.label}</p>
-                        <button className="btn-secondary btn-sm h-10" onClick={() => navigator.clipboard.writeText(artifact.content)}>Copy</button>
-                      </div>
-                      <p className="whitespace-pre-wrap break-words text-sm text-slate-200">{artifact.content}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  className="btn-secondary btn-sm"
-                  onClick={() =>
-                    navigator.clipboard.writeText(
-                      effectiveCopilot.copyable_artifacts?.[0]?.content ||
-                      artifactsToShow?.[0]?.content ||
-                        `${effectiveCopilot.immediate_action}\n\n${effectiveCopilot.template || ''}`.trim()
-                    )
-                  }
-                >
-                  Copy
-                </button>
-                <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeMission?.id || state.active_outcome_id))}>Log proof</button>
-                <button className="btn-secondary btn-sm" onClick={safeAction('Complete', () => activeMission && completeOutcome(activeMission.id))}>Complete</button>
-              </div>
+              {process.env.NODE_ENV !== 'production' && <p className="mb-2 text-[11px] text-slate-500">Copilot source: {effectiveCopilot.source || 'current_mission'}</p>}
+              <CopilotCard
+                copilotMode={copilotMode}
+                effectiveCopilot={effectiveCopilot}
+                artifactsToShow={artifactsToShow}
+                onRefresh={refreshCopilot}
+                onCopyMain={() =>
+                  navigator.clipboard.writeText(
+                    effectiveCopilot.copyable_artifacts?.[0]?.content ||
+                    artifactsToShow?.[0]?.content ||
+                      `${effectiveCopilot.immediate_action}\n\n${effectiveCopilot.template || ''}`.trim()
+                  )
+                }
+                onLogProof={safeAction('Log proof', () => openProofModal(activeMission?.id || state.active_outcome_id))}
+                onComplete={safeAction('Complete', () => activeMission && completeOutcome(activeMission.id))}
+              />
             </NextMovePanel>
           </div>
         </DailyPlanPreview>}

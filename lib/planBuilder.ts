@@ -26,6 +26,20 @@ const WORK_TYPE_LABELS: Record<DetectedWorkType, string> = {
 
 const BANNED_GENERIC = ['rewrite your goal', 'improve workflow', 'do one task', 'make progress', 'continue current mission'];
 const VAGUE_ONLY = /^(fix it|improve things|do better|project|stuff)$/i;
+export function extractNegativeConstraints(rawText: string): string[] {
+  const parts = rawText
+    .split(/[.!?]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const negatives = parts.filter((p) => /\b(do not|don't|no |avoid|without|not |never)\b/i.test(p));
+  const normalized = negatives
+    .map((n) => n.replace(/\b(do not|don't|avoid|never)\b/gi, '').replace(/\bwithout\b/gi, '').trim())
+    .map((n) => n.replace(/^to\s+/i, '').replace(/^a\s+/i, '').trim())
+    .filter((n) => n.length > 2);
+  const crm = /\bfull crm|overbuild.*crm|crm\b/i.test(rawText) ? ['full CRM', 'overbuilt CRM'] : [];
+  return Array.from(new Set([...normalized, ...crm]));
+}
+
 const ACTION_WORDS = ['build', 'grow', 'find', 'organize', 'ship', 'make', 'compare', 'fix', 'prepare', 'learn', 'publish', 'sell', 'clean', 'plan'];
 
 export function workTypeLabel(type: DetectedWorkType): string {
@@ -68,10 +82,18 @@ function inferObject(raw: string, action: string): string {
   return s.split(/\s+/).slice(-5).join(' ') || 'goal';
 }
 
+function stripNegativeClauses(raw: string): string {
+  return raw
+    .split(/[.!?]/)
+    .map((s) => s.trim())
+    .filter((s) => s && !/\b(do not|don't|no |avoid|without|never)\b/i.test(s))
+    .join('. ');
+}
+
 function inferPattern(raw: string): ExecutionPattern {
   const s = raw.toLowerCase();
+  if (/\b(leads?|outreach|prospects?|booking|sell|revenue|money|follow up|appointments?)\b/.test(s)) return 'sell_or_outreach';
   if (/\b(build|create|ship|prototype|saas|app|hydroponic|herb|shelf)\b/.test(s)) return 'create_or_build';
-  if (/\b(leads?|outreach|prospects?|booking|sell|revenue|money|follow up)\b/.test(s)) return 'sell_or_outreach';
   if (/\b(organize|clean|garage|workspace|declutter)\b/.test(s)) return 'organize_or_clean';
   if (/\b(compare|research|evaluate|decide|tools)\b/.test(s)) return 'research_or_decide';
   if (/\b(learn|study|practice)\b/.test(s)) return 'learn_or_practice';
@@ -116,8 +138,8 @@ function inferDeliverables(raw: string, pattern: ExecutionPattern): string[] {
   return ['target definition', 'execution checklist', 'proof checklist', 'report'];
 }
 
-export function extractGoalFacts(rawGoal: string): GoalFacts {
-  const raw = rawGoal.trim();
+export function extractGoalFacts(rawGoal: string, extraConstraints?: string): GoalFacts {
+  const raw = stripNegativeClauses(rawGoal.trim());
   const action = inferAction(raw);
   const object = inferObject(raw, action);
   const timeframe = raw.match(/\b(today|tomorrow|this week|weekend)\b/i)?.[1];
@@ -126,6 +148,7 @@ export function extractGoalFacts(rawGoal: string): GoalFacts {
     ...(/\b(common|at-home|local|indoors)\b/i.test(raw) ? ['use common accessible setup'] : []),
     ...(/\bwithout|no\b/i.test(raw) ? ['explicit constraints in goal text'] : [])
   ];
+  const prohibited = extractNegativeConstraints(`${raw} ${extraConstraints || ''}`);
   const pattern = inferPattern(raw);
   const deliverables = inferDeliverables(raw, pattern);
   const proof_signals = /\b(photo|screenshot|proof|report)\b/i.test(raw) ? ['photo or screenshot proof'] : ['proof checklist', 'end-of-day report'];
@@ -133,7 +156,7 @@ export function extractGoalFacts(rawGoal: string): GoalFacts {
   const domain_terms = extractEntities(raw);
   const desired_outcome = `${action} ${object} with a practical, proof-backed result`;
   const unknowns = raw.length < 8 || VAGUE_ONLY.test(raw) ? ['missing concrete object and desired result'] : [];
-  return { object, action, desired_outcome, timeframe, constraints, deliverables, proof_signals, tools, domain_terms, unknowns };
+  return { object, action, desired_outcome, timeframe, constraints: [...constraints, ...prohibited.map((p) => `Do not ${p}`)], deliverables, proof_signals, tools, domain_terms, unknowns };
 }
 
 export function detectWorkType(raw: string): DetectedWorkType {
@@ -151,11 +174,17 @@ function missionCategory(pattern: ExecutionPattern): DailyOutcome['category'] {
 function buildUniversalMissions(facts: GoalFacts, pattern: ExecutionPattern): DailyOutcome[] {
   const cat = missionCategory(pattern);
   const base = facts.deliverables;
+  const prohibited = (facts.constraints || []).join(' ').toLowerCase();
+  const safeDeliverables = base.filter((d) => !prohibited.includes(d.toLowerCase()) && !/crm/i.test(d.toLowerCase()));
+  const primary = safeDeliverables[0] || 'target segment';
+  const secondary = safeDeliverables[1] || 'tracker';
+  const tertiary = safeDeliverables[2] || 'message draft';
   const titles = [
-    `Clarify target and path for ${facts.object}`,
-    `Create core assets: ${base.slice(0, 2).join(' + ')}`,
-    `Execute and verify ${facts.object}`,
-    `Capture proof and follow-up report`
+    `Define target for ${facts.object}`,
+    `Build ${primary}`,
+    `Create ${secondary} and ${tertiary}`,
+    `Execute first actions for ${facts.object}`,
+    `Log proof and follow-up`
   ];
   return titles.map((title, idx) =>
     outcomeBase({
@@ -177,18 +206,18 @@ function buildUniversalMissions(facts: GoalFacts, pattern: ExecutionPattern): Da
             ? `Execute the first practical step that produces ${base[0]}.`
             : 'Attach proof and record what to carry forward tomorrow.',
       checklist: [
-        `Complete: ${base[idx] || 'target definition'}`,
+        `Complete: ${safeDeliverables[idx] || 'target definition'}`,
         'Avoid unrelated work',
         'Update proof notes'
       ],
-      done_when: `Deliverable complete: ${base[idx] || 'report'} and proof captured.`,
+      done_when: `Deliverable complete: ${safeDeliverables[idx] || 'report'} and proof captured.`,
       risk: 'Drifting into unrelated tasks.',
       leverage_score: Math.max(6, 9 - idx),
       money_potential: pattern === 'sell_or_outreach' || pattern === 'admin_or_recover' ? 'high' : 'medium',
       urgency: idx < 2 ? 'high' : 'medium',
       effort: idx === 2 ? 'high' : 'medium'
     })
-  ).slice(0, 4);
+  ).slice(0, 5);
 }
 
 function buildPossiblePaths(raw: string, pattern: ExecutionPattern): { paths: string[]; recommended?: string; reason?: string } {
@@ -338,10 +367,11 @@ function workflowFromPlan(input: PlanBuilderInput, output: Omit<PlanBuilderOutpu
 
 export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
   const raw = input.raw_goal.trim();
-  const augmented = [raw, input.context || '', input.constraints || ''].filter(Boolean).join('. ');
-  const facts = extractGoalFacts(augmented);
-  const pattern = inferPattern(augmented);
-  const work = input.detected_work_type_override || detectWorkType(augmented);
+  const goalWithOutcome = [raw, input.desired_outcome || input.context || ''].filter(Boolean).join('. ');
+  const augmented = [goalWithOutcome, input.constraints || ''].filter(Boolean).join('. ');
+  const facts = extractGoalFacts(goalWithOutcome, input.constraints || '');
+  const pattern = inferPattern(goalWithOutcome);
+  const work = input.detected_work_type_override || detectWorkType(goalWithOutcome);
 
   let clarifyingQuestions: string[] = [];
   if (!raw || VAGUE_ONLY.test(raw) || facts.unknowns.length > 0) {
@@ -349,7 +379,7 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
   }
 
   const outcomes = buildUniversalMissions(facts, pattern);
-  const brainstorm = buildPossiblePaths(augmented, pattern);
+  const brainstorm = buildPossiblePaths(goalWithOutcome, pattern);
   const specificity = scoreSpecificity(augmented, outcomes);
   const base: Omit<PlanBuilderOutput, 'playbook'> = {
     detected_work_type: work,

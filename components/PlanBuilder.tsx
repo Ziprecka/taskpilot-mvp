@@ -68,6 +68,8 @@ export function PlanBuilder({
   const [desiredOutcome, setDesiredOutcome] = useState('');
   const [goalConstraints, setGoalConstraints] = useState('');
   const [preview, setPreview] = useState<PlanBuilderOutput | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationId, setGenerationId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!modalOpen) setPreview(null);
@@ -75,22 +77,47 @@ export function PlanBuilder({
 
   const autoDetected = useMemo(() => detectWorkType(goal), [goal]);
 
-  function runBuild(opts?: { clearWorkTypeOverride?: boolean; forceSelectedCategory?: boolean }) {
+  async function runBuild(opts?: { clearWorkTypeOverride?: boolean; forceSelectedCategory?: boolean }) {
+    const nextGen = crypto.randomUUID();
+    setGenerationId(nextGen);
+    setPreview(null);
+    setIsGenerating(true);
     const override = opts?.clearWorkTypeOverride ? null : workOverride || null;
     if (opts?.clearWorkTypeOverride) setWorkOverride('');
-    const plan = buildPlan({
-      raw_goal: goal,
-      mode: defaultMode,
-      category: 'productivity',
-      time_horizon: timeHorizon,
-      context: desiredOutcome,
-      constraints: goalConstraints,
-      detected_work_type_override: override,
-      apply_selected_category_anyway: Boolean(opts?.forceSelectedCategory)
-    });
-    setPreview(plan);
-    if (opts?.clearWorkTypeOverride) setWorkOverride(plan.detected_work_type);
-    onModalOpenChange(true);
+    try {
+      const res = await fetch('/api/plan-builder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          raw_goal: goal,
+          desired_outcome: desiredOutcome,
+          constraints: goalConstraints,
+          mode: defaultMode,
+          user_context: ''
+        })
+      });
+      const data = await res.json();
+      const plan: PlanBuilderOutput = data?.plan;
+      if (plan) {
+        setPreview(plan);
+        if (opts?.clearWorkTypeOverride) setWorkOverride(plan.detected_work_type);
+      } else {
+        const fallback = buildPlan({
+          raw_goal: goal,
+          desired_outcome: desiredOutcome,
+          mode: defaultMode,
+          category: 'productivity',
+          time_horizon: timeHorizon,
+          constraints: goalConstraints,
+          detected_work_type_override: override,
+          apply_selected_category_anyway: Boolean(opts?.forceSelectedCategory)
+        });
+        setPreview(fallback);
+      }
+      onModalOpenChange(true);
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   function handleSavePlaybookClick() {
@@ -189,7 +216,7 @@ export function PlanBuilder({
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn-primary btn-sm" onClick={() => runBuild()}>
+        <button type="button" className="btn-primary btn-sm" onClick={() => void runBuild()} disabled={isGenerating}>
           Generate Plan
         </button>
         <button
@@ -237,6 +264,11 @@ export function PlanBuilder({
         ) : null}
       </div>
 
+      {isGenerating && (
+        <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/40 p-2 text-xs text-slate-300">
+          TaskPilot is building your execution plan...
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="badge">Detected: {workTypeLabel(preview.detected_work_type)}</span>
         {preview.plan_style ? <span className="badge">Plan style: {preview.plan_style}</span> : null}
