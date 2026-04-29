@@ -35,6 +35,32 @@ export type PlanBuilderInput = {
 };
 
 export type PlannerSpecificity = 'weak' | 'good' | 'strong';
+export type ExecutionPattern =
+  | 'create_or_build'
+  | 'sell_or_outreach'
+  | 'organize_or_clean'
+  | 'research_or_decide'
+  | 'learn_or_practice'
+  | 'fix_or_debug'
+  | 'prepare_or_plan'
+  | 'publish_or_grow'
+  | 'admin_or_recover'
+  | 'health_or_personal';
+
+export type PlanStyle = 'Fast win' | 'Deep work' | 'Money-focused' | 'Build-ready' | 'Learning';
+
+export type GoalFacts = {
+  object: string;
+  action: string;
+  desired_outcome: string;
+  timeframe?: string;
+  constraints: string[];
+  deliverables: string[];
+  proof_signals: string[];
+  tools: string[];
+  domain_terms: string[];
+  unknowns: string[];
+};
 
 export type GoalIntent =
   | 'service_day'
@@ -133,6 +159,9 @@ export type PlanBuilderOutput = {
   relevance_label?: PlannerSpecificity;
   generated_from_test_prompt?: boolean;
   extracted_entities?: string[];
+  extracted_goal_facts?: GoalFacts;
+  execution_pattern?: ExecutionPattern;
+  plan_style?: PlanStyle;
   possible_paths?: string[];
   recommended_path?: string;
   recommended_path_reason?: string;

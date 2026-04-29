@@ -9,7 +9,7 @@ export default function HomePage() {
         <div>
           <div className="badge mb-5">Daily Execution System</div>
           <h1 className="mb-4 max-w-4xl text-5xl font-black leading-tight md:text-7xl">Finish the day with proof.</h1>
-          <p className="mb-7 max-w-2xl text-lg text-slate-300">TaskPilot turns messy goals into focused missions, concrete next actions, proof checklists, and daily reports.</p>
+          <p className="mb-7 max-w-2xl text-lg text-slate-300">Write any messy goal. TaskPilot figures out the path, creates missions, generates the next action, and asks for proof.</p>
           <div className="mb-4 flex flex-wrap gap-3">
             <Link href="/signup?next=/daily" className="btn-primary">Plan Today</Link>
             <Link href="/demo" className="btn-secondary">Watch Demo</Link>
@@ -56,10 +56,10 @@ export default function HomePage() {
           <h2 className="mb-4 text-xl font-black">Built for real work</h2>
           <div className="grid gap-3 md:grid-cols-2">
             {[
-              ['Business Growth', 'Goal examples: get leads, send outreach, follow up, close revenue', 'Output: prospect list, messages, follow-up plan', 'Proof: sends, replies, outcomes'],
-              ['Build Projects', 'Goal examples: ship a SaaS feature, fix a bug, launch a page', 'Output: scope, implementation checklist, test proof', 'Proof: commit, test output, release note'],
-              ['Physical Work', 'Goal examples: service day, organize workspace, hardware setup', 'Output: prep checklist, execution steps, photo proof', 'Proof: before/after and completion report'],
-              ['Learning / Research', 'Goal examples: study a topic, compare tools, validate an idea', 'Output: research path, notes, decision criteria', 'Proof: summary and decision note']
+              ['Build something', 'From rough idea to practical deliverables', 'Output: scope, checklist, first action', 'Proof: artifact + report'],
+              ['Sell something', 'Turn vague revenue goals into execution paths', 'Output: prospects, messages, follow-up plan', 'Proof: sends, replies, outcomes'],
+              ['Fix something', 'Debug from symptom to verified result', 'Output: repro path, fix steps, verify loop', 'Proof: before/after validation'],
+              ['Organize or learn', 'Convert chaos into a clear mission sequence', 'Output: zones, research notes, decision criteria', 'Proof: photos, summary, carry-forward']
             ].map(([title, goal, missions, proof]) => (
               <div key={title} className="rounded-xl border border-slate-700 bg-slate-950/40 p-4">
                 <p className="font-semibold text-white">{title}</p>

@@ -188,6 +188,37 @@ function buildByType(
   mission: DailyOutcome | null,
   ctx: ResolvedContext
 ): CopilotExecutionOutput {
+  const missionDrivenArtifacts = (() => {
+    const text = `${mission?.title || ''} ${mission?.objective || ''} ${mission?.first_action || ''}`.toLowerCase();
+    if (/\bparts|sensor|wiring|board|display|hydroponic|herb\b/.test(text)) {
+      return [
+        { label: 'Parts list table', content: 'Part | Qty | Est. cost | Source | Priority | Notes' },
+        { label: 'Proof checklist', content: '- Parts selected\n- Layout sketched\n- Build/test proof captured' }
+      ];
+    }
+    if (/\bfollowers|post|engage|account|x\b/.test(text)) {
+      return [
+        { label: 'Post drafts', content: 'Draft 1: ___\nDraft 2: ___\nDraft 3: ___' },
+        { label: 'Reply prompts', content: 'Prompt 1: ___\nPrompt 2: ___\n... up to 10' }
+      ];
+    }
+    if (/\blead|prospect|outreach|message\b/.test(text)) {
+      return [
+        { label: 'Outreach tracker', content: 'Prospect | Channel | Message | Sent | Reply | Next follow-up' },
+        { label: 'Message templates', content: 'Template A: ___\nTemplate B: ___\nFollow-up: ___' }
+      ];
+    }
+    if (/\bsaas|app|feature|deploy|test|commit\b/.test(text)) {
+      return [
+        { label: 'Cursor prompt', content: 'Implement [feature] with smallest safe diff. Return tests and edge cases.' },
+        { label: 'Acceptance criteria', content: '- change visible\n- tests pass\n- proof screenshot captured' }
+      ];
+    }
+    return [
+      { label: 'Mission checklist', content: (mission?.checklist || ['Define target', 'Execute next action', 'Capture proof']).join('\n- ') },
+      { label: 'Proof checklist', content: mission?.proof_required || 'Capture screenshot and completion note.' }
+    ];
+  })();
   const proof = mission?.proof_required || 'Screenshot of completed action and tracker update.';
 
   if (mode === 'brainstorm') {
@@ -397,12 +428,12 @@ function buildByType(
     title: mission?.title || 'Execution assistant',
     immediate_action: actionLine,
     where_to_go: ['Current mission panel', 'Main execution tool'],
-    make_this: baseArtifacts[0]?.content || 'Create one concrete artifact.',
-    template: baseArtifacts[0]?.content,
+    make_this: (baseArtifacts[0]?.content || missionDrivenArtifacts[0]?.content || 'Create one concrete artifact.'),
+    template: baseArtifacts[0]?.content || missionDrivenArtifacts[0]?.content,
     checklist: mission?.checklist?.slice(0, 4) || ['Run first action', 'Capture proof', 'Update status'],
     proof_required: proof,
     next_after_proof: 'Log proof and move to the next highest-leverage action.',
-    copyable_artifacts: baseArtifacts,
+    copyable_artifacts: baseArtifacts.length ? baseArtifacts : missionDrivenArtifacts,
     source: mode === 'blocked' ? 'blocked_helper' : 'current_mission'
   };
 }

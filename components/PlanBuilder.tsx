@@ -65,6 +65,8 @@ export function PlanBuilder({
 
   const [timeHorizon, setTimeHorizon] = useState<PlanTimeHorizon>('today');
   const [workOverride, setWorkOverride] = useState<DetectedWorkType | ''>('');
+  const [desiredOutcome, setDesiredOutcome] = useState('');
+  const [goalConstraints, setGoalConstraints] = useState('');
   const [preview, setPreview] = useState<PlanBuilderOutput | null>(null);
 
   useEffect(() => {
@@ -81,6 +83,8 @@ export function PlanBuilder({
       mode: defaultMode,
       category: 'productivity',
       time_horizon: timeHorizon,
+      context: desiredOutcome,
+      constraints: goalConstraints,
       detected_work_type_override: override,
       apply_selected_category_anyway: Boolean(opts?.forceSelectedCategory)
     });
@@ -97,6 +101,8 @@ export function PlanBuilder({
       mode: 'playbook',
       category: 'productivity',
       time_horizon: timeHorizon,
+      context: desiredOutcome,
+      constraints: goalConstraints,
       detected_work_type_override: wt,
       apply_selected_category_anyway: true
     });
@@ -155,6 +161,18 @@ export function PlanBuilder({
           Money path
         </button>
       </div>
+      <input
+        className="input"
+        placeholder="Desired outcome (optional)"
+        value={desiredOutcome}
+        onChange={(e) => setDesiredOutcome(e.target.value)}
+      />
+      <input
+        className="input"
+        placeholder="Constraints (optional)"
+        value={goalConstraints}
+        onChange={(e) => setGoalConstraints(e.target.value)}
+      />
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-xs text-slate-500">Time horizon</label>
         <select className="input max-w-[160px]" value={timeHorizon} onChange={(e) => setTimeHorizon(e.target.value as PlanTimeHorizon)}>
@@ -172,7 +190,7 @@ export function PlanBuilder({
       )}
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn-primary btn-sm" onClick={() => runBuild()}>
-          Build plan
+          Generate Plan
         </button>
         <button
           type="button"
@@ -181,10 +199,25 @@ export function PlanBuilder({
         >
           Run regression test goal
         </button>
-        <button type="button" className="btn-secondary btn-sm" onClick={() => runBuild({ clearWorkTypeOverride: true })}>
-          Re-detect work type &amp; rebuild
-        </button>
       </div>
+      <details className="rounded-lg border border-slate-700 bg-slate-950/30 p-2">
+        <summary className="cursor-pointer text-xs text-slate-400">Advanced</summary>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label className="text-xs text-slate-500">Planning hint (optional)</label>
+          <select
+            className="input max-w-xs text-sm"
+            value={workOverride}
+            onChange={(e) => setWorkOverride(e.target.value as DetectedWorkType)}
+          >
+            <option value="">Auto</option>
+            {WORK_TYPES.map((wt) => (
+              <option key={wt} value={wt}>
+                {workTypeLabel(wt)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </details>
       <p className="text-xs text-slate-500">
         Plan Builder runs locally first — structured plans even when AI limits apply. Same engine as Create Playbook.
       </p>
@@ -206,46 +239,8 @@ export function PlanBuilder({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="badge">Detected: {workTypeLabel(preview.detected_work_type)}</span>
-        <select
-          className="input max-w-xs text-sm"
-          value={workOverride || preview.detected_work_type}
-          onChange={(e) => setWorkOverride(e.target.value as DetectedWorkType)}
-        >
-          {WORK_TYPES.map((wt) => (
-            <option key={wt} value={wt}>
-              {workTypeLabel(wt)}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="btn-ghost btn-sm"
-          onClick={() => {
-            const wt = (workOverride || preview.detected_work_type) as DetectedWorkType;
-            const plan = buildPlan({
-              raw_goal: goal,
-              mode: defaultMode,
-              category: 'productivity',
-              time_horizon: timeHorizon,
-              detected_work_type_override: wt,
-              apply_selected_category_anyway: true
-            });
-            setPreview(plan);
-          }}
-        >
-          Use this category anyway
-        </button>
+        {preview.plan_style ? <span className="badge">Plan style: {preview.plan_style}</span> : null}
       </div>
-
-      {preview.intent_conflict && preview.conflict_reason && (
-        <div className="mt-3 rounded-lg border border-amber-600/40 bg-amber-500/10 p-2 text-xs text-amber-100">
-          {preview.conflict_reason} Using detected intent by default.
-        </div>
-      )}
-
-      {preview.detected_intent && (
-        <div className="mt-2 text-xs text-slate-400">Detected intent: <span className="text-amber-200">{preview.detected_intent.replace(/_/g, ' ')}</span></div>
-      )}
 
       {preview.assumptions?.length ? (
         <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
