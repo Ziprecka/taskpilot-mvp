@@ -3,6 +3,9 @@ import type { DailyOutcome } from '@/types/workflow';
 export type CopilotMode = 'action' | 'draft' | 'blocked' | 'brainstorm';
 
 export type CopilotMissionType =
+  | 'workspace_organization'
+  | 'social_growth'
+  | 'electronics_project'
   | 'outreach'
   | 'lead_generation'
   | 'service_day'
@@ -105,6 +108,9 @@ export function getCopilotMissionType(
   } ${mission?.proof_required || ''} ${mission?.category || ''} ${dailyGoalContext || ''} ${detectedWorkType || ''}`.toLowerCase();
 
   if (/\b(unpaid invoice|past due|overdue invoice|collect payment|invoice reminder)\b/.test(text)) return 'unpaid_invoice';
+  if (/\b(garage|workspace|workbench|sort tools|organization)\b/.test(text)) return 'workspace_organization';
+  if (/\b(followers|x account|post thread|engage accounts?)\b/.test(text)) return 'social_growth';
+  if (/\b(sensor|breadboard|wiring plan|display sensor|electronics)\b/.test(text)) return 'electronics_project';
   if (/\b(review request|google review|yelp review)\b/.test(text)) return 'review_request';
   if (/\b(follow up|follow-up|booking path|quote handoff|reply template)\b/.test(text)) return 'customer_followup';
   if (/\b(outreach|dm|cold email|send 5|send messages?)\b/.test(text)) return 'outreach';
@@ -117,10 +123,7 @@ export function getCopilotMissionType(
   return 'personal';
 }
 
-export const copilotArtifactTemplates: Record<
-  Exclude<CopilotMissionType, 'lead_generation' | 'personal' | 'research'>,
-  Array<{ label: string; content: string }>
-> = {
+export const copilotArtifactTemplates: Partial<Record<CopilotMissionType, Array<{ label: string; content: string }>>> = {
   outreach: [],
   service_day: [
     { label: 'Customer confirmation', content: "You're confirmed for today. I'll send an ETA before arrival." },
@@ -271,6 +274,60 @@ function buildByType(
     };
   }
 
+  if (type === 'workspace_organization') {
+    return {
+      mode,
+      title: 'Create one usable workspace zone',
+      immediate_action: 'Pick one workbench zone and clear it fully before touching anything else.',
+      where_to_go: ['Garage/workbench area'],
+      make_this: 'Zone labels: Tools | Supplies | Active Projects',
+      checklist: ['Take before photo', 'Clear one workbench', 'Create 3 zones', 'Remove one trash bag', 'Take after photo'],
+      proof_required: mission?.proof_required || 'Before/after workspace photos.',
+      next_after_proof: 'Stage one active weekend project on the cleared bench.',
+      copyable_artifacts: [
+        { label: 'Sort labels', content: 'Zone 1: Tools\nZone 2: Supplies/Materials\nZone 3: Active Projects' },
+        { label: 'Throw-away-first list', content: 'Empty boxes, broken items, random packaging, duplicate junk hardware.' }
+      ],
+      source: mode === 'blocked' ? 'blocked_helper' : 'artifact_template'
+    };
+  }
+
+  if (type === 'social_growth') {
+    return {
+      mode,
+      title: 'Ship social growth loop',
+      immediate_action: 'Draft and publish 3 posts: build update, lesson, and question.',
+      where_to_go: ['X compose', 'Niche keyword search'],
+      make_this: 'Post templates + engagement tracker',
+      checklist: ['Publish 3 posts', 'Reply to 20 niche posts', 'Track interactions'],
+      proof_required: mission?.proof_required || 'Post links/screenshots + engagement tracker screenshot.',
+      next_after_proof: 'Follow up with high-quality replies and profile optimization.',
+      copyable_artifacts: [
+        { label: 'Post starter', content: 'Build update: [what changed], [what I learned], [question for audience].' },
+        { label: 'Reply template', content: 'Great point on [topic]. I found [insight]. Curious how you handle [specific issue]?' }
+      ],
+      source: 'artifact_template'
+    };
+  }
+
+  if (type === 'electronics_project') {
+    return {
+      mode,
+      title: 'Scope electronics prototype',
+      immediate_action: 'Pick one board, one sensor, and one display to validate first.',
+      where_to_go: ['Parts list', 'Wiring sketch', 'Firmware editor'],
+      make_this: 'Parts checklist + wiring map + serial test plan',
+      checklist: ['Confirm parts', 'Sketch wiring', 'Flash minimal firmware', 'Verify serial output', 'Show sensor reading on display'],
+      proof_required: mission?.proof_required || 'Parts/wiring photo + serial output screenshot + display demo photo.',
+      next_after_proof: 'Document failures and next debug step.',
+      copyable_artifacts: [
+        { label: 'Parts checklist', content: 'Board | Sensor | Display | Jumper wires | Power source' },
+        { label: 'Serial debug checklist', content: 'Port detected -> firmware flashed -> stable serial values -> display refresh confirmed' }
+      ],
+      source: 'artifact_template'
+    };
+  }
+
   if (type === 'app_build') {
     return {
       mode,
@@ -294,16 +351,16 @@ function buildByType(
 
   const baseArtifacts =
     type === 'service_day'
-      ? copilotArtifactTemplates.service_day
+      ? copilotArtifactTemplates.service_day || []
       : type === 'review_request'
-        ? copilotArtifactTemplates.review_request
+        ? copilotArtifactTemplates.review_request || []
         : type === 'customer_followup'
-          ? copilotArtifactTemplates.customer_followup
+          ? copilotArtifactTemplates.customer_followup || []
           : type === 'unpaid_invoice'
-            ? copilotArtifactTemplates.unpaid_invoice
+            ? copilotArtifactTemplates.unpaid_invoice || []
             : type === 'hardware_debug'
-                ? copilotArtifactTemplates.hardware_debug
-                : copilotArtifactTemplates.admin;
+                ? copilotArtifactTemplates.hardware_debug || []
+                : copilotArtifactTemplates.admin || [];
 
   const actionLine =
     mode === 'blocked'

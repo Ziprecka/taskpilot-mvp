@@ -30,9 +30,41 @@ export type PlanBuilderInput = {
   proof_preference?: ProofPreference;
   /** When user overrides auto-detection */
   detected_work_type_override?: DetectedWorkType | null;
+  /** Explicitly force selected category even when conflicting */
+  apply_selected_category_anyway?: boolean;
 };
 
 export type PlannerSpecificity = 'weak' | 'good' | 'strong';
+
+export type GoalIntent =
+  | 'service_day'
+  | 'service_business_sales'
+  | 'social_growth'
+  | 'workspace_organization'
+  | 'home_project'
+  | 'saas_build'
+  | 'electronics_project'
+  | 'hardware_debug'
+  | 'robotics_project'
+  | 'content_creation'
+  | 'research_project'
+  | 'learning_plan'
+  | 'admin_cleanup'
+  | 'finance_recovery'
+  | 'personal_health'
+  | 'custom_execution';
+
+export type GoalIntentDetection = {
+  intent: GoalIntent;
+  confidence: number;
+  selected_category: string;
+  category_conflict: boolean;
+  reason: string;
+  extracted_entities: string[];
+  extracted_actions: string[];
+  extracted_constraints: string[];
+  missing_info: string[];
+};
 
 export type TodayMission = {
   title: string;
@@ -86,6 +118,9 @@ export type DailyNextMoveResponse = Pick<
 
 export type PlanBuilderOutput = {
   detected_work_type: DetectedWorkType;
+  detected_intent?: GoalIntent;
+  intent_conflict?: boolean;
+  conflict_reason?: string;
   interpreted_goal?: string;
   plan_title: string;
   plan_summary: string;

@@ -2,6 +2,8 @@ import type { DailyOutcome, Workflow, WorkflowCategory, WorkflowStep } from '@/t
 import type {
   DailyNextMoveResponse,
   DetectedWorkType,
+  GoalIntent,
+  GoalIntentDetection,
   MessageTemplate,
   PlanBuilderInput,
   PlanBuilderOutput,
@@ -42,6 +44,7 @@ const BAD_GENERIC_PHRASES = [
   'fix one visible ux issue'
 ];
 const GENERIC_FIRST_ACTION_BAN = new RegExp(`^(${BAD_GENERIC_PHRASES.join('|')})`, 'i');
+const GENERIC_PLAN_BAN_RE = new RegExp(BAD_GENERIC_PHRASES.join('|'), 'i');
 
 export function workTypeLabel(type: DetectedWorkType): string {
   return WORK_TYPE_LABELS[type] || WORK_TYPE_LABELS.custom;
@@ -51,8 +54,8 @@ export function detectWorkType(raw: string): DetectedWorkType {
   const s = raw.toLowerCase();
   if (!s.trim()) return 'custom';
   const has = (re: RegExp) => re.test(s);
-  if (has(/\b(leads?|customers?|bookings?|detailing|mobile detailing|quote requests?|follow up|upsell|maintenance|yelp|instagram leads?|facebook groups?)\b/)) return 'service_business_sales';
-  if (has(/\b(detail|detailing|mobile detailing|car detail|suds auto salon|appointment|before\/after|route day|upsell|review ask)\b/)) return 'service_day';
+  if (has(/\b(leads?|customers?|bookings?|quote requests?|follow up|yelp|instagram leads?|facebook groups?|outreach|prospect)\b/)) return 'service_business_sales';
+  if (has(/\b(service day|appointment|appointments|scheduled jobs?|3 car|route day|loadout|car detail|detailing day|tomorrow.?jobs?)\b/)) return 'service_day';
   if (has(/\b(client|deliverable|invoice|scope|brief|revision)\b/)) return 'client_work_day';
   if (has(/\b(beta users?|outreach|prospect|lead|dm|cold email|sales)\b/)) return 'sales_day';
   if (has(/\b(atom|s3r|arduino|esp32|flash|firmware|com port|driver|wiring|robot api)\b/)) return 'hardware_setup';
@@ -62,6 +65,126 @@ export function detectWorkType(raw: string): DetectedWorkType {
   if (has(/\b(learn|study|course|quiz|practice|notes)\b/)) return 'learning';
   if (has(/\b(home|health|family|personal)\b/)) return 'personal';
   return 'custom';
+}
+
+function extractActions(raw: string): string[] {
+  const verbs = ['organize', 'build', 'ship', 'fix', 'launch', 'grow', 'set up', 'setup', 'send', 'clean', 'test', 'deploy', 'flash', 'sort'];
+  const s = raw.toLowerCase();
+  return verbs.filter((v) => s.includes(v)).slice(0, 8);
+}
+
+function extractConstraints(raw: string): string[] {
+  const out: string[] = [];
+  const s = raw.toLowerCase();
+  if (/\b(today|tonight|tomorrow|weekend|this week)\b/.test(s)) out.push('timeframe');
+  if (/\b(\d+)\b/.test(s)) out.push('numeric target');
+  if (/\bwithout|only|no\b/.test(s)) out.push('constraint language');
+  return out;
+}
+
+function selectedCategoryToIntent(selected: string): GoalIntent {
+  const s = String(selected || '').toLowerCase();
+  if (s.includes('service')) return 'service_day';
+  if (s.includes('sales')) return 'service_business_sales';
+  if (s.includes('build') || s.includes('saas')) return 'saas_build';
+  if (s.includes('hardware') || s.includes('robot')) return 'hardware_debug';
+  if (s.includes('research')) return 'research_project';
+  if (s.includes('learning')) return 'learning_plan';
+  if (s.includes('admin')) return 'admin_cleanup';
+  if (s.includes('personal')) return 'personal_health';
+  return 'custom_execution';
+}
+
+function mapIntentToWorkType(intent: GoalIntent): DetectedWorkType {
+  if (intent === 'service_day') return 'service_day';
+  if (intent === 'service_business_sales' || intent === 'social_growth') return 'service_business_sales';
+  if (intent === 'saas_build') return 'app_build';
+  if (intent === 'electronics_project' || intent === 'hardware_debug' || intent === 'robotics_project') return 'hardware_setup';
+  if (intent === 'research_project') return 'research';
+  if (intent === 'learning_plan') return 'learning';
+  if (intent === 'admin_cleanup' || intent === 'finance_recovery') return 'admin';
+  if (intent === 'personal_health') return 'personal';
+  return 'custom';
+}
+
+export function detectGoalIntent(rawGoal: string, selectedCategory: string): GoalIntentDetection {
+  const raw = rawGoal.trim();
+  const s = raw.toLowerCase();
+  const entities = extractEntities(raw);
+  const actions = extractActions(raw);
+  const constraints = extractConstraints(raw);
+  const selectedIntent = selectedCategoryToIntent(selectedCategory);
+  let intent: GoalIntent = 'custom_execution';
+  let reason = 'No strong keywords yet.';
+  let confidence = 0.45;
+
+  if (/\b(garage|workbench|workspace|shelves|storage|tools|supplies|organize)\b/.test(s)) {
+    intent = 'workspace_organization';
+    reason = 'Goal mentions garage/workspace organization entities.';
+    confidence = 0.94;
+  } else if (/\b(grow x|followers|posts?|engage|account)\b/.test(s)) {
+    intent = 'social_growth';
+    reason = 'Goal targets social account growth actions.';
+    confidence = 0.9;
+  } else if (/\b(sensor|esp32|breadboard|wiring|serial|display|electronics)\b/.test(s)) {
+    intent = 'electronics_project';
+    reason = 'Goal includes electronics parts/firmware language.';
+    confidence = 0.9;
+  } else if (/\b(robot|atom s3r|deskbot|firmware|screen|com port)\b/.test(s)) {
+    intent = 'hardware_debug';
+    reason = 'Goal includes robot/hardware debug keywords.';
+    confidence = 0.88;
+  } else if (/\b(saas|feature|route|component|api|deploy|release)\b/.test(s)) {
+    intent = 'saas_build';
+    reason = 'Goal targets software shipping behavior.';
+    confidence = 0.88;
+  } else if (/\b(leads?|bookings?|outreach|prospect|dm|quote requests?|detailing)\b/.test(s)) {
+    intent = /(\bappointment|jobs?|route|3 car|tomorrow\b)/.test(s) ? 'service_day' : 'service_business_sales';
+    reason = intent === 'service_day' ? 'Goal explicitly references scheduled jobs/service-day signals.' : 'Goal targets lead-generation and outreach.';
+    confidence = 0.9;
+  } else if (/\b(invoice|overdue|payment|unpaid)\b/.test(s)) {
+    intent = 'finance_recovery';
+    reason = 'Goal references unpaid invoice/payment recovery.';
+    confidence = 0.86;
+  } else if (/\b(research|compare|evaluate)\b/.test(s)) {
+    intent = 'research_project';
+    reason = 'Goal asks for research/evaluation work.';
+    confidence = 0.82;
+  } else if (/\b(learn|course|study)\b/.test(s)) {
+    intent = 'learning_plan';
+    reason = 'Goal references learning progression.';
+    confidence = 0.8;
+  } else if (/\b(clean up|admin|organize docs|calendar|inbox)\b/.test(s)) {
+    intent = 'admin_cleanup';
+    reason = 'Goal references admin cleanup operations.';
+    confidence = 0.8;
+  } else if (/\b(health|workout|sleep)\b/.test(s)) {
+    intent = 'personal_health';
+    reason = 'Goal references personal health outcomes.';
+    confidence = 0.78;
+  }
+
+  const missing_info =
+    raw.length < 6 || /^(do better|fix it|make this work|project|stuff)$/i.test(raw)
+      ? ['What object are you trying to improve?']
+      : [];
+
+  const categoryConflict = selectedIntent !== 'custom_execution' && selectedIntent !== intent && confidence >= 0.72;
+  return {
+    intent,
+    confidence,
+    selected_category: selectedCategory || 'unspecified',
+    category_conflict: categoryConflict,
+    reason,
+    extracted_entities: entities,
+    extracted_actions: actions,
+    extracted_constraints: constraints,
+    missing_info: missing_info.length
+      ? missing_info
+      : raw.split(/\s+/).length <= 2 && intent === 'custom_execution'
+        ? ['Do you mean grow followers, get sales, or finish a project?']
+        : []
+  };
 }
 
 function nowIso() {
@@ -221,17 +344,26 @@ function toMission(outcome: DailyOutcome): TodayMission {
 }
 
 function scoreSpecificity(raw: string, outcomes: DailyOutcome[], work: DetectedWorkType): { score: number; label: PlannerSpecificity } {
-  const text = `${raw} ${outcomes.map((o) => `${o.title} ${o.first_action} ${o.proof_required}`).join(' ')}`.toLowerCase();
+  const lowerGoal = raw.toLowerCase();
+  const text = outcomes.map((o) => `${o.title} ${o.first_action} ${o.proof_required}`).join(' ').toLowerCase();
   let score = 0;
   const entities = extractEntities(raw);
-  if (entities.some((e) => text.includes(e.toLowerCase()))) score += 2;
-  if (/\b(open|write|list|send|create|load|confirm|plug|run|flash)\b/.test(text)) score += 2;
-  if (/\bphoto|screenshot|sheet|message|route|checklist|calendar|device manager|google sheets\b/.test(text)) score += 2;
-  if (/\bjob|vehicle|route|timeline|block|step|order|today|tomorrow\b/.test(text)) score += 2;
-  if (!BAD_GENERIC_PHRASES.some((p) => text.includes(p))) score += 2;
-  if ((work === 'service_day' || work === 'service_business_sales') && /\bvehicle|customer|route|van|review|lead|prospect|outreach\b/.test(text)) score += 2;
-  if (score >= 10) return { score, label: 'strong' };
-  if (score >= 7) return { score, label: 'good' };
+  const relevanceHits = entities.filter((e) => text.includes(e.toLowerCase())).length;
+  if (relevanceHits >= 2) score += 3;
+  if (/\b(open|write|list|send|create|load|confirm|plug|run|flash|sort|publish|engage)\b/.test(text)) score += 2;
+  if (/\bphoto|screenshot|sheet|message|checklist|calendar|serial|commit|deploy|before\/after\b/.test(text)) score += 2;
+  const missionDiversity = new Set(outcomes.map((o) => (o.title || '').split(' ')[0].toLowerCase())).size;
+  if (missionDiversity >= 3) score += 2;
+  if (!GENERIC_PLAN_BAN_RE.test(text)) score += 1;
+  const unrelated =
+    /\b(customer|vehicle|route|detailing)\b/.test(text) && /\b(garage|workspace|workbench)\b/.test(lowerGoal)
+      ? 4
+      : /\b(garage|workspace|workbench)\b/.test(text) && /\b(detail|customer|route|vehicle)\b/.test(lowerGoal)
+        ? 4
+        : 0;
+  score = Math.max(0, score - unrelated);
+  if (score >= 8) return { score, label: 'strong' };
+  if (score >= 5) return { score, label: 'good' };
   return { score, label: 'weak' };
 }
 
@@ -829,6 +961,186 @@ function buildServiceBusinessSalesPlan(raw: string): Omit<PlanBuilderOutput, 'ne
   };
 }
 
+function buildWorkspaceOrganizationPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
+  const outcomes: DailyOutcome[] = [
+    outcomeBase({
+      title: 'Clear one workbench zone',
+      objective: 'Create a usable surface for weekend projects.',
+      why_it_matters: 'You can only build when one zone is physically usable.',
+      category: 'build',
+      priority: 1,
+      status: 'planned',
+      estimated_minutes: 35,
+      actual_minutes: 0,
+      proof_required: 'Before/after photo of cleared workbench.',
+      proof_provided: '',
+      first_action: 'Take a before photo, choose one workbench/table area, and remove everything that does not belong there.',
+      checklist: ['Take before photo', 'Pick one work surface', 'Move trash/recycling out', 'Move unrelated items to temporary sort pile', 'Wipe surface'],
+      done_when: 'One usable work surface is clear and photographed.',
+      leverage_score: 9,
+      money_potential: 'low',
+      urgency: 'high',
+      effort: 'medium',
+      risk: 'Trying to organize the entire garage at once.'
+    }),
+    outcomeBase({
+      title: 'Sort tools and supplies into 3 zones',
+      objective: 'Make workspace usable without buying storage.',
+      why_it_matters: 'Zoning removes setup friction for future project sessions.',
+      category: 'build',
+      priority: 2,
+      status: 'planned',
+      estimated_minutes: 40,
+      actual_minutes: 0,
+      proof_required: 'Photo showing three visible zones.',
+      proof_provided: '',
+      first_action: 'Create three zones: tools, supplies/materials, and active projects.',
+      checklist: ['Group hand tools', 'Group consumables/materials', 'Stage active project bin', 'Label or photograph each zone'],
+      done_when: 'Three zones are clearly identifiable.',
+      leverage_score: 8,
+      money_potential: 'low',
+      urgency: 'medium',
+      effort: 'medium',
+      risk: 'Over-labeling before grouping.'
+    }),
+    outcomeBase({
+      title: 'Remove trash and stage active project area',
+      objective: 'End with a workspace ready for the next project.',
+      why_it_matters: 'A ready workspace increases probability of immediate execution.',
+      category: 'build',
+      priority: 3,
+      status: 'planned',
+      estimated_minutes: 25,
+      actual_minutes: 0,
+      proof_required: 'Trash removed + final wide after photo.',
+      proof_provided: '',
+      first_action: 'Throw away obvious trash and set one active project in the cleared area.',
+      checklist: ['Fill one trash/recycle bag', 'Remove bag from garage', 'Place one active project on workbench', 'Take final wide photo'],
+      done_when: 'Workspace is usable and project-ready.',
+      leverage_score: 8,
+      money_potential: 'low',
+      urgency: 'medium',
+      effort: 'low',
+      risk: 'Leaving trash bag in place.'
+    })
+  ];
+  return {
+    detected_work_type: 'custom',
+    interpreted_goal: 'Create one usable garage work area today without redesigning the whole garage.',
+    plan_title: 'Workspace organization sprint',
+    plan_summary: 'Clear one zone, create storage logic, stage active project area.',
+    assumptions: ['You want a functional weekend project workspace, not full-garage redesign.'],
+    clarifying_questions: [],
+    daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
+    next_move: {
+      direct_answer: 'Clear one workbench first.',
+      next_move: 'Clear one workbench zone.',
+      go_here: 'Garage workbench',
+      write_make_do: 'Take before photo and remove non-project items from one workbench.',
+      proof_needed: 'Before/after workbench photo.',
+      avoid: 'Do not attempt the entire garage in one pass.',
+      suggested_action: 'start_focus',
+      next_action: 'Clear the first zone now.',
+      suggested_focus_minutes: 15,
+      priority_reason: 'One usable zone unlocks all project work.',
+      drift_warning: ''
+    }
+  };
+}
+
+function buildSocialGrowthPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
+  const outcomes: DailyOutcome[] = [
+    outcomeBase({
+      title: 'Clarify account promise',
+      objective: 'Make profile intent obvious in one sentence.',
+      why_it_matters: 'Followers convert better when profile value is clear.',
+      category: 'other',
+      priority: 1,
+      status: 'planned',
+      estimated_minutes: 20,
+      actual_minutes: 0,
+      proof_required: 'Profile bio screenshot or note with one-sentence promise.',
+      proof_provided: '',
+      first_action: 'Write one sentence: "I post about ___ for ___."',
+      checklist: ['Draft one sentence', 'Update bio headline', 'Set profile link'],
+      done_when: 'Account promise is visible on profile.',
+      leverage_score: 8,
+      money_potential: 'medium',
+      urgency: 'high',
+      effort: 'low',
+      risk: 'Vague positioning.'
+    }),
+    outcomeBase({
+      title: 'Publish 3 useful posts',
+      objective: 'Create visible proof of value.',
+      why_it_matters: 'Posting consistency is required for growth.',
+      category: 'other',
+      priority: 2,
+      status: 'planned',
+      estimated_minutes: 50,
+      actual_minutes: 0,
+      proof_required: 'Screenshots or links to 3 published posts.',
+      proof_provided: '',
+      first_action: 'Draft 3 posts: one build update, one lesson, one question.',
+      checklist: ['Draft post 1', 'Draft post 2', 'Draft post 3', 'Publish all three'],
+      done_when: '3 posts are live.',
+      leverage_score: 9,
+      money_potential: 'medium',
+      urgency: 'high',
+      effort: 'medium',
+      risk: 'Editing loops delay publishing.'
+    }),
+    outcomeBase({
+      title: 'Engage with 20 relevant accounts',
+      objective: 'Create meaningful interactions that lead to followers.',
+      why_it_matters: 'Engagement drives discovery.',
+      category: 'other',
+      priority: 3,
+      status: 'planned',
+      estimated_minutes: 35,
+      actual_minutes: 0,
+      proof_required: 'Screenshot/tracker of 20 thoughtful replies.',
+      proof_provided: '',
+      first_action: 'Search 3 niche keywords and reply thoughtfully to 20 posts.',
+      checklist: ['Pick 3 keywords', 'Reply to 20 posts', 'Track replies in simple sheet'],
+      done_when: '20 relevant interactions completed.',
+      leverage_score: 8,
+      money_potential: 'medium',
+      urgency: 'medium',
+      effort: 'medium',
+      risk: 'Low-quality one-word replies.'
+    })
+  ];
+  return {
+    detected_work_type: 'sales_day',
+    interpreted_goal: 'Grow account with profile clarity, consistent posting, and targeted engagement.',
+    plan_title: 'Social growth sprint',
+    plan_summary: 'Promise -> posts -> engagement loop with proof.',
+    assumptions: ['Goal is follower growth through organic actions.'],
+    clarifying_questions: [],
+    daily_outcomes: outcomes,
+    today_missions: outcomes.map(toMission),
+    message_templates: [
+      { id: 'sg1', label: 'Post starter', body: 'Build update: [what I changed], [why it matters], [question].' },
+      { id: 'sg2', label: 'Reply template', body: 'Great point on [topic]. I found [insight]. Curious how you handle [specific question]?' }
+    ],
+    next_move: {
+      direct_answer: 'Set account promise first.',
+      next_move: 'Write profile promise.',
+      go_here: 'X profile editor',
+      write_make_do: 'Write: "I post about ___ for ___." and update profile now.',
+      proof_needed: 'Bio screenshot.',
+      avoid: 'Posting before positioning is clear.',
+      suggested_action: 'start_focus',
+      next_action: 'Update profile promise now.',
+      suggested_focus_minutes: 10,
+      priority_reason: 'Promise clarity improves all post performance.',
+      drift_warning: ''
+    }
+  };
+}
+
 function buildAppBuildPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
   const outcomes: DailyOutcome[] = [
     outcomeBase({
@@ -1312,9 +1624,14 @@ function workflowFromPlan(input: PlanBuilderInput, output: Omit<PlanBuilderOutpu
 /** Core planner: deterministic templates + work-type routing */
 export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
   const raw = input.raw_goal.trim();
+  const intentDetection = detectGoalIntent(raw, input.detected_work_type_override || input.category || '');
   const expanded = expandVagueGoal(raw, input.context);
-  const classified = classifyGoal(raw + ' ' + (input.context || ''));
-  const work = input.detected_work_type_override || classified;
+  const detectedWork = mapIntentToWorkType(intentDetection.intent);
+  const selectedWork = input.detected_work_type_override || null;
+  const work =
+    input.apply_selected_category_anyway && selectedWork
+      ? selectedWork
+      : detectedWork;
   const entities = extractEntities(raw);
   const _template = choosePlanTemplate(work);
 
@@ -1322,19 +1639,27 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
 
   switch (work) {
     case 'service_business_sales':
-      partial = buildServiceBusinessSalesPlan(raw);
+      partial = intentDetection.intent === 'social_growth' ? buildSocialGrowthPlan(raw) : buildServiceBusinessSalesPlan(raw);
       break;
     case 'service_day':
       partial = buildServicePlan(raw, input.time_horizon);
       break;
     case 'hardware_setup':
       partial = buildHardwarePlan(raw);
+      if (intentDetection.intent === 'electronics_project') {
+        partial.plan_title = 'Electronics prototype sprint';
+        partial.plan_summary = 'Architecture -> parts/wiring -> firmware -> display proof.';
+      }
       break;
     case 'sales_day':
       partial = buildSalesPlan(raw);
       break;
     case 'app_build':
       partial = buildAppBuildPlan(raw);
+      break;
+    case 'custom':
+      if (intentDetection.intent === 'workspace_organization') partial = buildWorkspaceOrganizationPlan(raw);
+      else partial = buildGenericPlan(raw, 'custom');
       break;
     case 'learning':
       partial = buildLearningPlan(raw);
@@ -1352,10 +1677,33 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
       partial = buildGenericPlan(raw, 'client_work_day');
       break;
     default:
-      partial = buildGenericPlan(raw, 'custom');
+      if (intentDetection.intent === 'workspace_organization') partial = buildWorkspaceOrganizationPlan(raw);
+      else if (intentDetection.intent === 'social_growth') partial = buildSocialGrowthPlan(raw);
+      else partial = buildGenericPlan(raw, 'custom');
   }
 
   partial.detected_work_type = work;
+  partial.detected_intent = intentDetection.intent;
+  partial.intent_conflict = intentDetection.category_conflict;
+  if (intentDetection.category_conflict) {
+    const msg = `TaskPilot detected that your goal fits ${intentDetection.intent.replace(/_/g, ' ')} better than ${workTypeLabel(selectedWork || detectedWork)}.`;
+    partial.conflict_reason = msg;
+    partial.assumptions = [msg, ...(partial.assumptions || [])].slice(0, 4);
+  }
+  if (intentDetection.missing_info.length) {
+    partial.clarifying_questions = [
+      intentDetection.missing_info[0],
+      'Do you mean grow followers, get sales, or finish a project?'
+    ];
+    partial.sections = [
+      ...(partial.sections || []),
+      {
+        id: 'need_one_detail',
+        title: 'Need one detail',
+        items: ['Grow followers', 'Get sales', 'Finish a project']
+      }
+    ];
+  }
   if (!partial.interpreted_goal) partial.interpreted_goal = expanded.interpreted_goal;
   if (partial.assumptions && expanded.assumption && !partial.assumptions.some((a) => a.toLowerCase().includes(expanded.assumption.toLowerCase()))) {
     partial.assumptions = [expanded.assumption, ...partial.assumptions].slice(0, 4);
@@ -1387,12 +1735,15 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
 
 /** Dev-only sanity prompts for planner regression checks */
 export const PLANNER_REGRESSION_TESTS = [
+  'Organize a messy garage into a functional weekend project workspace.',
+  'grow X account to 20 followers',
   'find new leads for details',
   'get more customers for my detailing business',
   'successful 3 car detail day tomorrow',
+  'build a high level electronics project',
   'fix my atom robot screen',
   'set up my lotto bitcoin miner',
-  'ship one improvement to TaskPilot',
+  'ship one improvement to my SaaS app',
   'make money today',
   'clean up unpaid invoices'
 ] as const;

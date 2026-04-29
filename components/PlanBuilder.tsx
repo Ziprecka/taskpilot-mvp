@@ -73,7 +73,7 @@ export function PlanBuilder({
 
   const autoDetected = useMemo(() => detectWorkType(goal), [goal]);
 
-  function runBuild(opts?: { clearWorkTypeOverride?: boolean }) {
+  function runBuild(opts?: { clearWorkTypeOverride?: boolean; forceSelectedCategory?: boolean }) {
     const override = opts?.clearWorkTypeOverride ? null : workOverride || null;
     if (opts?.clearWorkTypeOverride) setWorkOverride('');
     const plan = buildPlan({
@@ -81,11 +81,11 @@ export function PlanBuilder({
       mode: defaultMode,
       category: 'productivity',
       time_horizon: timeHorizon,
-      detected_work_type_override: override
+      detected_work_type_override: override,
+      apply_selected_category_anyway: Boolean(opts?.forceSelectedCategory)
     });
     setPreview(plan);
     if (opts?.clearWorkTypeOverride) setWorkOverride(plan.detected_work_type);
-    else setWorkOverride((prev) => prev || plan.detected_work_type);
     onModalOpenChange(true);
   }
 
@@ -97,7 +97,8 @@ export function PlanBuilder({
       mode: 'playbook',
       category: 'productivity',
       time_horizon: timeHorizon,
-      detected_work_type_override: wt
+      detected_work_type_override: wt,
+      apply_selected_category_anyway: true
     });
     if (pb.playbook && onSavePlaybook) onSavePlaybook(pb.playbook, pb);
     onModalOpenChange(false);
@@ -231,14 +232,25 @@ export function PlanBuilder({
               mode: defaultMode,
               category: 'productivity',
               time_horizon: timeHorizon,
-              detected_work_type_override: wt
+              detected_work_type_override: wt,
+              apply_selected_category_anyway: true
             });
             setPreview(plan);
           }}
         >
-          Apply type
+          Use this category anyway
         </button>
       </div>
+
+      {preview.intent_conflict && preview.conflict_reason && (
+        <div className="mt-3 rounded-lg border border-amber-600/40 bg-amber-500/10 p-2 text-xs text-amber-100">
+          {preview.conflict_reason} Using detected intent by default.
+        </div>
+      )}
+
+      {preview.detected_intent && (
+        <div className="mt-2 text-xs text-slate-400">Detected intent: <span className="text-amber-200">{preview.detected_intent.replace(/_/g, ' ')}</span></div>
+      )}
 
       {preview.assumptions?.length ? (
         <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
