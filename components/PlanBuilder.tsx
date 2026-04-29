@@ -127,34 +127,32 @@ export function PlanBuilder({
       ? 'Write messy goals. TaskPilot interprets intent and turns them into proof-backed missions.'
       : 'Describe the real-world loop once. TaskPilot structures steps, proof, and reuse.';
 
-  const EXAMPLES_SERVICE =
-    'Run a successful 3 car mobile detailing day tomorrow with before/after proof and customer messages.';
-  const EXAMPLES_HW =
-    'Set up Atom S3R and connect it to TaskPilot app. Also test lotto bitcoin miner.';
-  const EXAMPLES_SALES = 'Get beta users for TaskPilot.';
-  const EXAMPLES_BUILD = 'Ship one UX fix on the Daily page with deploy proof.';
+  const EXAMPLES_SOCIAL = 'Grow X account to 20 followers.';
+  const EXAMPLES_WORKSPACE = 'Organize a messy garage into a weekend project workspace.';
+  const EXAMPLES_ELECTRONICS = 'Build a high level electronics project.';
+  const EXAMPLES_MONEY = 'Make money today.';
 
   const IntakeFields = (
     <div className="space-y-3">
       <textarea
         className="input min-h-28"
-        placeholder="Example: complete 3 details, send beta outreach, fix one app issue, prep tomorrow’s route…"
+        placeholder="Example: ship one SaaS improvement, organize workspace, grow an account, fix hardware bug…"
         value={goal}
         onChange={(e) => setGoal(e.target.value)}
       />
       <div className="flex flex-wrap gap-2">
         <span className="text-xs uppercase tracking-widest text-slate-500">Examples</span>
-        <button type="button" className="btn-ghost btn-sm text-left" onClick={() => setGoal(EXAMPLES_SERVICE)}>
-          Service day
+        <button type="button" className="btn-ghost btn-sm text-left" onClick={() => setGoal(EXAMPLES_SOCIAL)}>
+          Social growth
         </button>
-        <button type="button" className="btn-ghost btn-sm text-left" onClick={() => setGoal(EXAMPLES_HW)}>
-          Hardware + side quest
+        <button type="button" className="btn-ghost btn-sm text-left" onClick={() => setGoal(EXAMPLES_WORKSPACE)}>
+          Workspace organization
         </button>
-        <button type="button" className="btn-ghost btn-sm text-left" onClick={() => setGoal(EXAMPLES_SALES)}>
-          Beta outreach
+        <button type="button" className="btn-ghost btn-sm text-left" onClick={() => setGoal(EXAMPLES_ELECTRONICS)}>
+          Electronics project
         </button>
-        <button type="button" className="btn-ghost btn-sm text-left" onClick={() => setGoal(EXAMPLES_BUILD)}>
-          Ship UX fix
+        <button type="button" className="btn-ghost btn-sm text-left" onClick={() => setGoal(EXAMPLES_MONEY)}>
+          Money path
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -179,9 +177,9 @@ export function PlanBuilder({
         <button
           type="button"
           className="btn-secondary btn-sm"
-          onClick={() => setGoal('Run a successful 3-car mobile detailing day tomorrow.')}
+          onClick={() => setGoal('grow X account to 20 followers')}
         >
-          Run service-day regression test
+          Run regression test goal
         </button>
         <button type="button" className="btn-secondary btn-sm" onClick={() => runBuild({ clearWorkTypeOverride: true })}>
           Re-detect work type &amp; rebuild
@@ -195,11 +193,8 @@ export function PlanBuilder({
 
   const PreviewBody = preview ? (
     <>
-      <h2 className="text-xl font-black">{preview.plan_title}</h2>
-      <p className="mt-1 text-sm text-slate-400">{preview.plan_summary}</p>
-
       <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
-        <p className="font-semibold text-slate-300">Original</p>
+        <p className="font-semibold text-slate-300">Original goal</p>
         <p>{goal || 'No goal provided.'}</p>
         {preview.interpreted_goal ? (
           <>
@@ -254,16 +249,35 @@ export function PlanBuilder({
 
       {preview.assumptions?.length ? (
         <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
-          <p className="font-semibold text-slate-300">Working assumptions</p>
+          <p className="font-semibold text-slate-300">Assumptions</p>
           <ul className="list-inside list-disc">
-            {preview.assumptions.map((a) => (
+            {preview.assumptions.slice(0, 2).map((a) => (
               <li key={a}>{a}</li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      {(preview.specificity_label || preview.specificity_score !== undefined) && (
+      {!!preview.possible_paths?.length && (
+        <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
+          <p className="font-semibold text-slate-300">Possible paths</p>
+          <ol className="list-inside list-decimal">
+            {preview.possible_paths.map((path) => (
+              <li key={path}>{path}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {(preview.recommended_path || preview.recommended_path_reason) && (
+        <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
+          <p className="font-semibold text-slate-300">Recommended execution path</p>
+          {preview.recommended_path ? <p>{preview.recommended_path}</p> : null}
+          {preview.recommended_path_reason ? <p className="mt-1 text-slate-500">{preview.recommended_path_reason}</p> : null}
+        </div>
+      )}
+
+      {process.env.NODE_ENV !== 'production' && (preview.specificity_label || preview.specificity_score !== undefined) && (
         <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
           <p className="font-semibold text-slate-300">
             Specificity (dev): {preview.specificity_label || 'unknown'}
@@ -274,6 +288,14 @@ export function PlanBuilder({
               Make more specific
             </button>
           )}
+        </div>
+      )}
+      {process.env.NODE_ENV !== 'production' && (preview.relevance_label || preview.relevance_score !== undefined) && (
+        <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50 p-2 text-xs text-slate-400">
+          <p className="font-semibold text-slate-300">
+            Relevance (dev): {preview.relevance_label || 'unknown'}
+            {preview.relevance_score !== undefined ? ` (${preview.relevance_score})` : ''}
+          </p>
         </div>
       )}
 
@@ -407,7 +429,7 @@ export function PlanBuilder({
       <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-700 pt-4">
         {defaultMode === 'daily_execution' && onAcceptDailyPlan && (
           <button type="button" className="btn-primary btn-sm" onClick={handleAcceptToday}>
-            Accept as Today Plan
+            Accept plan
           </button>
         )}
         {defaultMode === 'playbook' && preview.playbook && onSavePlaybook && (

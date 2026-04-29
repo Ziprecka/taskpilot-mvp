@@ -30,8 +30,7 @@ export function Nav() {
     { href: '/account', label: 'Account' }
   ];
   const toolsBase = [
-    { href: '/settings/robot', label: 'Robot API' },
-    { href: '/proof', label: 'Evidence Vault' },
+    { href: '/settings/robot', label: 'DeskBot Settings' },
     { href: '/feedback', label: 'Feedback' }
   ];
   const toolsAdmin = [

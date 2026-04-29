@@ -159,6 +159,8 @@ export const copilotArtifactTemplates: Partial<Record<CopilotMissionType, Array<
     { label: 'Debug path', content: 'Cable -> Port -> Driver -> Flash -> Serial -> API check -> Log proof' }
   ],
   admin: [
+    { label: 'Triage table', content: 'Item | Owner | Risk | Deadline | Next action | Status' },
+    { label: 'Priority rules', content: '1) Revenue risk first\n2) External commitments second\n3) Internal cleanup last' },
     { label: 'Execution checklist', content: '- Clear top 3 overdue items\n- Calendar block tomorrow\n- Save one reusable template' }
   ]
 };
@@ -304,7 +306,9 @@ function buildByType(
       next_after_proof: 'Follow up with high-quality replies and profile optimization.',
       copyable_artifacts: [
         { label: 'Post starter', content: 'Build update: [what changed], [what I learned], [question for audience].' },
-        { label: 'Reply template', content: 'Great point on [topic]. I found [insight]. Curious how you handle [specific issue]?' }
+        { label: 'Reply template', content: 'Great point on [topic]. I found [insight]. Curious how you handle [specific issue]?' },
+        { label: 'Engagement tracker', content: 'Account | Post URL | Reply sent | Follow-up needed | Result' },
+        { label: 'Profile checklist', content: '- One-line promise\n- Audience in bio\n- Clear CTA link\n- Pinned post/value proof' }
       ],
       source: 'artifact_template'
     };
@@ -322,6 +326,7 @@ function buildByType(
       next_after_proof: 'Document failures and next debug step.',
       copyable_artifacts: [
         { label: 'Parts checklist', content: 'Board | Sensor | Display | Jumper wires | Power source' },
+        { label: 'Wiring checklist', content: 'Power/GND mapped | Signal pin mapped | Pull-up/down checked | Connector seated' },
         { label: 'Serial debug checklist', content: 'Port detected -> firmware flashed -> stable serial values -> display refresh confirmed' }
       ],
       source: 'artifact_template'
@@ -346,6 +351,26 @@ function buildByType(
       next_after_proof: 'Make the smallest visible change and run build.',
       copyable_artifacts: copilotArtifactTemplates.app_build,
       source: mode === 'blocked' ? 'blocked_helper' : 'artifact_template'
+    };
+  }
+
+  if (type === 'research') {
+    return {
+      mode,
+      title: 'Run decision-focused research',
+      immediate_action: 'Define the decision to make and compare three options against explicit criteria.',
+      where_to_go: ['Search sources', 'Notes table', 'Decision memo'],
+      make_this: 'Comparison table + decision matrix + short summary',
+      checklist: ['Write decision question', 'Collect 3-6 sources', 'Score options on criteria', 'Write recommendation'],
+      proof_required: mission?.proof_required || 'Completed comparison table and recommendation summary.',
+      next_after_proof: 'Share the recommendation and capture objections for follow-up.',
+      copyable_artifacts: [
+        { label: 'Search plan', content: 'Goal query | Source type | Why this source | Reliability score' },
+        { label: 'Comparison table', content: 'Option | Strengths | Risks | Cost | Time-to-value | Notes' },
+        { label: 'Decision matrix', content: 'Criteria | Weight | Option A | Option B | Option C | Winner' },
+        { label: 'Summary template', content: 'Decision: ___\nRecommendation: ___\nWhy: ___\nRisks: ___\nNext step: ___' }
+      ],
+      source: 'artifact_template'
     };
   }
 

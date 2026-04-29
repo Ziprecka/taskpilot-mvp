@@ -322,6 +322,66 @@ function extractEntities(raw: string): string[] {
   return Array.from(new Set(words)).slice(0, 8);
 }
 
+function extractGoalObject(raw: string): string {
+  const cleaned = raw.trim().replace(/[.?!]+$/, '');
+  const m = cleaned.match(/\b(?:to|for|into|with)\s+(.{3,80})$/i);
+  if (m) return m[1].trim();
+  const words = cleaned.split(/\s+/).slice(-4).join(' ');
+  return words || 'the target outcome';
+}
+
+function scoreRelevance(raw: string, outcomes: DailyOutcome[], interpretedGoal?: string): { score: number; label: PlannerSpecificity } {
+  const source = `${raw} ${interpretedGoal || ''}`.toLowerCase();
+  const planText = outcomes.map((o) => `${o.title} ${o.first_action} ${o.proof_required}`).join(' ').toLowerCase();
+  const nouns = extractEntities(raw).map((n) => n.toLowerCase());
+  let score = 0;
+  const nounHits = nouns.filter((n) => planText.includes(n)).length;
+  if (nounHits >= 2) score += 3;
+  else if (nounHits >= 1) score += 2;
+  if (!/(suds auto salon|seattle|detailing day|3 car)/.test(planText) || /(detail|detailing|service)/.test(source)) score += 2;
+  if (/(photo|screenshot|proof|report|checklist|message|test|reply|commit)/.test(planText)) score += 2;
+  if (/(clear|sort|build|send|ship|compare|fix|organize|publish|follow)/.test(planText)) score += 2;
+  if (/\b(customer|vehicle|route|detailing)\b/.test(planText) && !/\b(customer|vehicle|route|detail|detailing)\b/.test(source)) score -= 4;
+  if (/\b(invoice|payment)\b/.test(source) && !/\b(invoice|payment)\b/.test(planText)) score -= 3;
+  if (/\bgarage|workspace\b/.test(source) && /\bcustomer|route|vehicle\b/.test(planText)) score -= 4;
+  if (score >= 8) return { score, label: 'strong' };
+  if (score >= 5) return { score, label: 'good' };
+  return { score: Math.max(0, score), label: 'weak' };
+}
+
+function isBroadGoal(raw: string): boolean {
+  const s = raw.toLowerCase().trim();
+  if (!s) return true;
+  if (s.split(/\s+/).length <= 4) return true;
+  return /\b(make money today|build .*project|grow|improve|work on|organize|start)\b/.test(s);
+}
+
+function buildPossiblePaths(raw: string, intent: GoalIntent): { paths: string[]; recommended?: string; reason?: string } {
+  const s = raw.toLowerCase();
+  if (/\bmake money today\b/.test(s)) {
+    return {
+      paths: ['Follow up with warm leads', 'Send direct offers', 'Collect overdue payments', 'Sell a simple service/product'],
+      recommended: 'Follow up with warm leads',
+      reason: 'Warm follow-ups are closest to immediate cash.'
+    };
+  }
+  if (intent === 'electronics_project' || /\belectronics\b/.test(s)) {
+    return {
+      paths: ['Sensor display prototype', 'Desk notification device', 'Robot control panel', 'Environmental monitor'],
+      recommended: 'Sensor display prototype',
+      reason: 'It validates board, wiring, firmware, and display output quickly.'
+    };
+  }
+  if (intent === 'custom_execution' && isBroadGoal(raw)) {
+    return {
+      paths: ['Fast win', 'Money/revenue path', 'Build/asset path', 'Learning/research path'],
+      recommended: 'Fast win',
+      reason: 'A short visible win builds momentum and clarifies the next mission.'
+    };
+  }
+  return { paths: [] };
+}
+
 function toMission(outcome: DailyOutcome): TodayMission {
   const money =
     outcome.money_potential === 'high' || outcome.money_potential === 'medium'
@@ -1482,18 +1542,19 @@ function buildAdminPlan(raw: string): Omit<PlanBuilderOutput, 'next_move'> & { n
 function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilderOutput, 'next_move'> & { next_move: DailyNextMoveResponse } {
   const cat = pickCategory(work);
   const expanded = expandVagueGoal(raw);
+  const targetObject = extractGoalObject(raw);
   const outcomes: DailyOutcome[] = [
     outcomeBase({
-      title: 'Define today\'s target artifact',
-      why_it_matters: 'Execution beats intent.',
+      title: `Clarify target result for ${targetObject}`,
+      why_it_matters: 'A concrete target prevents random execution.',
       category: cat,
       priority: 1,
       status: 'planned',
-      estimated_minutes: 60,
+      estimated_minutes: 25,
       actual_minutes: 0,
-      proof_required: 'Timestamped artifact (screenshot, export, or message) proving completion.',
+      proof_required: 'One-line desired result and proof format saved in notes.',
       proof_provided: '',
-      first_action: `Assumption: ${expanded.assumption} Open your main tool and create the first concrete artifact now.`,
+      first_action: `Write: "By end of day, I will produce ___ for ${targetObject}."`,
       value_score: 7,
       quality_score: 7,
       leverage_score: 7,
@@ -1502,22 +1563,40 @@ function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilder
       effort: 'medium'
     }),
     outcomeBase({
-      title: 'Ship the first proof-backed result',
-      why_it_matters: 'Backup keeps momentum if first finishes early.',
+      title: `Execute or create the first concrete output for ${targetObject}`,
+      why_it_matters: 'Execution turns interpretation into visible progress.',
       category: cat,
       priority: 2,
       status: 'planned',
-      estimated_minutes: 45,
+      estimated_minutes: 55,
       actual_minutes: 0,
-      proof_required: 'Artifact or log entry.',
+      proof_required: 'Primary artifact screenshot, link, or exported file.',
       proof_provided: '',
-      first_action: 'Run the first action now and capture one visible proof artifact.',
+      first_action: `Start the highest-leverage step that directly moves ${targetObject} forward.`,
       value_score: 6,
       quality_score: 6,
       leverage_score: 5,
       money_potential: 'low',
       urgency: 'low',
       effort: 'medium'
+    }),
+    outcomeBase({
+      title: `Verify, follow up, and report results for ${targetObject}`,
+      why_it_matters: 'Proof and follow-through make the work real.',
+      category: cat,
+      priority: 3,
+      status: 'planned',
+      estimated_minutes: 30,
+      actual_minutes: 0,
+      proof_required: 'Proof checklist complete plus short day-end report.',
+      proof_provided: '',
+      first_action: 'List what counts as done, verify it, then record the result and next step.',
+      value_score: 7,
+      quality_score: 7,
+      leverage_score: 6,
+      money_potential: 'low',
+      urgency: 'medium',
+      effort: 'low'
     })
   ];
 
@@ -1540,7 +1619,7 @@ function buildGenericPlan(raw: string, work: DetectedWorkType): Omit<PlanBuilder
     interpreted_goal: expanded.interpreted_goal,
     plan_title: "Today's plan",
     plan_summary: raw.trim() ? `TaskPilot interpreted: ${raw.slice(0, 200)}` : 'TaskPilot inferred a practical execution plan.',
-    assumptions: [expanded.assumption, 'You can edit missions after this first useful draft.'],
+    assumptions: [expanded.assumption],
     clarifying_questions: ['What single artifact proves you won the day?'],
     daily_outcomes: outcomes,
     today_missions: outcomes.map(toMission),
@@ -1633,6 +1712,7 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
       ? selectedWork
       : detectedWork;
   const entities = extractEntities(raw);
+  const brainstorm = buildPossiblePaths(raw, intentDetection.intent);
   const _template = choosePlanTemplate(work);
 
   let partial: Omit<PlanBuilderOutput, 'playbook'> & { next_move: DailyNextMoveResponse };
@@ -1710,8 +1790,23 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
   }
   partial.extracted_entities = entities;
   const specificity = scoreSpecificity(raw, partial.daily_outcomes || [], work);
+  const relevance = scoreRelevance(raw, partial.daily_outcomes || [], partial.interpreted_goal);
   partial.specificity_score = specificity.score;
   partial.specificity_label = specificity.label;
+  partial.relevance_score = relevance.score;
+  partial.relevance_label = relevance.label;
+  if (brainstorm.paths.length) {
+    partial.possible_paths = brainstorm.paths;
+    partial.recommended_path = brainstorm.recommended;
+    partial.recommended_path_reason = brainstorm.reason;
+  }
+  if (relevance.label === 'weak') {
+    const repaired = buildGenericPlan(raw, work === 'custom' ? 'custom' : work);
+    partial.daily_outcomes = repaired.daily_outcomes;
+    partial.today_missions = repaired.today_missions;
+    partial.assumptions = repaired.assumptions;
+    partial.plan_summary = `Repaired for relevance: ${repaired.plan_summary}`;
+  }
   if (specificity.label === 'weak') {
     const tightened = (partial.daily_outcomes || []).map((o) => ({
       ...o,
@@ -1735,17 +1830,16 @@ export function buildPlan(input: PlanBuilderInput): PlanBuilderOutput {
 
 /** Dev-only sanity prompts for planner regression checks */
 export const PLANNER_REGRESSION_TESTS = [
-  'Organize a messy garage into a functional weekend project workspace.',
   'grow X account to 20 followers',
-  'find new leads for details',
-  'get more customers for my detailing business',
-  'successful 3 car detail day tomorrow',
+  'organize a messy garage into a weekend project workspace',
   'build a high level electronics project',
-  'fix my atom robot screen',
-  'set up my lotto bitcoin miner',
   'ship one improvement to my SaaS app',
+  'find new leads',
   'make money today',
-  'clean up unpaid invoices'
+  'compare 3 tools for a project',
+  'clean up unpaid invoices',
+  'prepare for a client meeting',
+  'fix a hardware display bug'
 ] as const;
 
 export { WORK_TYPE_LABELS };

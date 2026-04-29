@@ -1389,7 +1389,7 @@ Money: ${debrief.money_score}/100
                               <p className="text-xs text-emerald-200">Completed {outcome.completed_at ? new Date(outcome.completed_at).toLocaleTimeString() : ''}</p>
                             <div className="mt-1 flex flex-wrap gap-2">
                                 <button className="btn-ghost btn-sm" onClick={() => openProofModal(outcome.id)}>View proof</button>
-                                <button className="btn-ghost btn-sm" onClick={() => openWorkflowDraft(outcome.id)}>Create Playbook</button>
+                                <button className="btn-ghost btn-sm" onClick={() => openWorkflowDraft(outcome.id)}>Run Today</button>
                                 <button className="btn-ghost btn-sm" onClick={() => openLessonModal(outcome.id)}>Save lesson</button>
                                 {queuedPlaybookByOutcome[outcome.id] && <span className="badge">Already created from this outcome</span>}
                               </div>
@@ -1451,7 +1451,7 @@ Money: ${debrief.money_score}/100
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button className="btn-ghost btn-sm" onClick={safeAction('Pause', () => { updateState((prev) => ({ ...prev, active_focus_block: prev.active_focus_block ? { ...prev.active_focus_block, status: 'paused' } : null })); logEvent('completed_action', 'Focus paused.'); })}>Pause</button>
-                      <button className="btn-ghost btn-sm" onClick={safeAction('Create playbook', () => openWorkflowDraft(activeMission.id))}>Create Playbook</button>
+                      <button className="btn-ghost btn-sm" onClick={safeAction('Run today from playbook', () => openWorkflowDraft(activeMission.id))}>Run Today</button>
                     </div>
                   </div>
                 </div>
@@ -1466,7 +1466,6 @@ Money: ${debrief.money_score}/100
               <div className="mb-3 flex flex-wrap gap-2">
                 <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('action')}>Next action</button>
                 <button className={`btn-secondary btn-sm ${copilotMode === 'draft' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('draft')}>Draft it</button>
-                <button className={`btn-secondary btn-sm hidden sm:inline-flex ${copilotMode === 'brainstorm' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('brainstorm')}>Brainstorm</button>
                 <button className={`btn-secondary btn-sm ${copilotMode === 'blocked' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('blocked')}>Blocked</button>
               </div>
               {process.env.NODE_ENV !== 'production' && (
@@ -1541,10 +1540,10 @@ Money: ${debrief.money_score}/100
                     )
                   }
                 >
-                  Copy artifact
+                  Copy
                 </button>
                 <button className="btn-secondary btn-sm" onClick={safeAction('Log proof', () => openProofModal(activeMission?.id || state.active_outcome_id))}>Log proof</button>
-                <button className="btn-secondary btn-sm" onClick={safeAction('Mark complete', () => activeMission && completeOutcome(activeMission.id))}>Mark complete</button>
+                <button className="btn-secondary btn-sm" onClick={safeAction('Complete', () => activeMission && completeOutcome(activeMission.id))}>Complete</button>
               </div>
             </NextMovePanel>
           </div>

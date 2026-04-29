@@ -129,8 +129,13 @@ export type PlanBuilderOutput = {
   sections?: Array<{ id: string; title: string; items: string[] }>;
   specificity_score?: number;
   specificity_label?: PlannerSpecificity;
+  relevance_score?: number;
+  relevance_label?: PlannerSpecificity;
   generated_from_test_prompt?: boolean;
   extracted_entities?: string[];
+  possible_paths?: string[];
+  recommended_path?: string;
+  recommended_path_reason?: string;
   daily_outcomes?: DailyOutcome[];
   today_missions?: TodayMission[];
   playbook?: Workflow;
