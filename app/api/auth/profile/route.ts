@@ -23,7 +23,16 @@ export async function POST(req: NextRequest) {
     utm_medium: body.utm_medium ?? null,
     utm_campaign: body.utm_campaign ?? null,
     utm_content: body.utm_content ?? null,
-    x_handle: body.x_handle ?? null
+    x_handle: body.x_handle ?? null,
+    work_use: body.work_use ?? null,
+    business_name: body.business_name ?? null,
+    industry: body.industry ?? null,
+    service_area: body.service_area ?? null,
+    offer: body.offer ?? null,
+    target_customer: body.target_customer ?? null,
+    common_tools: Array.isArray(body.common_tools) ? body.common_tools : null,
+    preferred_tone: body.preferred_tone ?? null,
+    booking_link: body.booking_link ?? null
   });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
   const profile = await getUserProfile(user.id);
@@ -51,6 +60,15 @@ export async function PATCH(req: NextRequest) {
       x_handle: body.x_handle ?? undefined,
       admin_notes: body.admin_notes ?? undefined,
       contact_status: body.contact_status ?? undefined,
+      work_use: body.work_use ?? undefined,
+      business_name: body.business_name ?? undefined,
+      industry: body.industry ?? undefined,
+      service_area: body.service_area ?? undefined,
+      offer: body.offer ?? undefined,
+      target_customer: body.target_customer ?? undefined,
+      common_tools: Array.isArray(body.common_tools) ? body.common_tools : undefined,
+      preferred_tone: body.preferred_tone ?? undefined,
+      booking_link: body.booking_link ?? undefined,
       updated_at: new Date().toISOString()
     })
     .eq('id', user.id)

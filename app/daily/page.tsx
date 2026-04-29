@@ -30,9 +30,11 @@ import { syncTodayDeskBotPayload } from '@/lib/robotSync';
 import { TODAY_BUTTON_AUDIT } from '@/lib/buttonAudit';
 import {
   buildCopilotExecutionOutput,
+  getDefaultCopilotMode,
   type CopilotExecutionOutput,
+  type CopilotGeneratedState,
   type CopilotMode,
-  type CopilotBusinessContext
+  type UserExecutionContext
 } from '@/lib/copilot';
 import type { PlanBuilderOutput } from '@/types/planBuilder';
 import type { DailyCommandState, DailyDebrief, DailyEvent, DailyOutcome, DailyProofItem, DailyReport, FocusBlock, LearningCard as LearningCardType, UserProgression, Workflow } from '@/types/workflow';
@@ -158,7 +160,8 @@ export default function DailyPage() {
   const [showCloseDayModal, setShowCloseDayModal] = useState(false);
   const [showCloseWarning, setShowCloseWarning] = useState(false);
   const [copilotMode, setCopilotMode] = useState<CopilotMode>('action');
-  const [copilotOutput, setCopilotOutput] = useState<CopilotExecutionOutput | null>(null);
+  const [copilotState, setCopilotState] = useState<CopilotGeneratedState | null>(null);
+  const [userExecutionContext, setUserExecutionContext] = useState<UserExecutionContext | null>(null);
   const [showCompletedExpanded, setShowCompletedExpanded] = useState(false);
   const [playbookLimitModalOpen, setPlaybookLimitModalOpen] = useState(false);
   const [betaAdmin, setBetaAdmin] = useState(false);
@@ -246,6 +249,29 @@ export default function DailyPage() {
       setSyncLabel(health?.env?.supabaseEnabled ? 'Synced' : 'Local');
     }).catch(() => null);
   }, [storageKey, today]);
+
+  useEffect(() => {
+    void fetch('/api/auth/profile')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data?.ok || !data?.profile) return;
+        const p = data.profile as Record<string, unknown>;
+        setUserExecutionContext({
+          user_id: String(p.id || ''),
+          email: String(p.email || ''),
+          role: (p.role as string) || undefined,
+          industry: (p.industry as string) || undefined,
+          business_name: (p.business_name as string) || undefined,
+          service_area: (p.service_area as string) || undefined,
+          offer: (p.offer as string) || undefined,
+          target_customer: (p.target_customer as string) || undefined,
+          preferred_tone: (p.preferred_tone as string) || undefined,
+          common_tools: Array.isArray(p.common_tools) ? (p.common_tools as string[]) : undefined,
+          booking_link: (p.booking_link as string) || undefined
+        });
+      })
+      .catch(() => null);
+  }, []);
 
   function mapWorkTypeToDayType(work: string): DayType {
     switch (work) {
@@ -403,8 +429,15 @@ export default function DailyPage() {
   }, [state.active_focus_block?.id, state.active_focus_block?.status]);
 
   useEffect(() => {
-    if (state.active_focus_block?.status === 'active') setCopilotMode('action');
-  }, [state.active_focus_block?.status]);
+    const missionId = state.active_focus_block?.outcome_id || state.active_outcome_id || null;
+    const nextMode = getDefaultCopilotMode({
+      mission: state.outcomes.find((o) => o.id === missionId) || null,
+      detectedWorkType: state.detected_work_type,
+      blocked: state.status === 'blocked'
+    });
+    setCopilotMode(nextMode);
+    setCopilotState(null);
+  }, [state.active_focus_block?.outcome_id, state.active_outcome_id, state.status, state.detected_work_type]);
 
 
   useEffect(() => {
@@ -624,6 +657,16 @@ export default function DailyPage() {
     }));
     logEvent('completed_outcome', `Outcome completed: ${target.title}`);
     void trackEvent('mission_completed', { outcome_id: target.id, title: target.title });
+    void fetch('/api/user/execution-preferences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        preferred_categories: [target.category].filter(Boolean),
+        common_tools: userExecutionContext?.common_tools || [],
+        proof_preferences: [target.proof_required].filter(Boolean),
+        successful_patterns: [target.first_action].filter(Boolean)
+      })
+    }).catch(() => null);
     addRecentActivity({ type: 'daily_outcome_completed', title: target.title, route: '/daily' });
     setProgression((prev) => ({ ...prev, completed_outcomes_total: prev.completed_outcomes_total + 1 }));
     awardXP(25, 'Outcome complete', 'big');
@@ -1081,26 +1124,32 @@ Money: ${debrief.money_score}/100
       hasProof: Boolean(o.proof_provided?.trim())
     }));
 
-  const copilotBusinessContext: CopilotBusinessContext = {
-    business_name: 'Suds Auto Salon',
-    service_area: 'Seattle / North Seattle / Snohomish County area',
-    offer: 'mobile auto detailing',
-    target_customer:
-      'car owners, busy professionals, families, high-income vehicle owners, small businesses with vehicles',
-    booking_link: '[booking link]',
-    tone: 'direct, premium, helpful'
-  };
+  useEffect(() => {
+    const nextMode = getDefaultCopilotMode({
+      mission: activeMission,
+      detectedWorkType: state.detected_work_type,
+      blocked: state.status === 'blocked'
+    });
+    setCopilotMode(nextMode);
+    setCopilotState(null);
+  }, [activeMission?.id, state.detected_work_type, state.status]);
 
   function refreshCopilot(mode: CopilotMode) {
+    const missionId = activeMission?.id || null;
     const output = buildCopilotExecutionOutput({
       mode,
       mission: activeMission,
       dailyGoalContext: state.daily_goals || state.custom_context || dailyGoalsInput,
       detectedWorkType: state.detected_work_type,
-      businessContext: copilotBusinessContext
+      userContext: userExecutionContext || undefined
     });
     setCopilotMode(mode);
-    setCopilotOutput(output);
+    setCopilotState({
+      mission_id: missionId,
+      mode,
+      generated_at: nowIso(),
+      output
+    });
   }
   const executionScore = Math.min(100, ((completedToday * 25) + Math.min(30, focusMinutesToday) + Math.min(20, (state.proof_count_today || 0) * 10)));
 
@@ -1113,14 +1162,22 @@ Money: ${debrief.money_score}/100
   }
 
   const effectiveCopilot =
-    copilotOutput ||
-    buildCopilotExecutionOutput({
-      mode: copilotMode,
-      mission: activeMission,
-      dailyGoalContext: state.daily_goals || state.custom_context || dailyGoalsInput,
-      detectedWorkType: state.detected_work_type,
-      businessContext: copilotBusinessContext
-    });
+    copilotState?.mission_id === (activeMission?.id || null)
+      ? copilotState.output
+      : buildCopilotExecutionOutput({
+          mode: copilotMode,
+          mission: activeMission,
+          dailyGoalContext: state.daily_goals || state.custom_context || dailyGoalsInput,
+          detectedWorkType: state.detected_work_type,
+          userContext: userExecutionContext || undefined
+        });
+  const artifactsToShow = (effectiveCopilot.copyable_artifacts || []).filter((artifact, idx, arr) => {
+    const key = `${artifact.label.trim().toLowerCase()}|${artifact.content.trim().toLowerCase()}`;
+    const firstIdx = arr.findIndex((x) => `${x.label.trim().toLowerCase()}|${x.content.trim().toLowerCase()}` === key);
+    if (firstIdx !== idx) return false;
+    const mainBlob = `${effectiveCopilot.make_this || ''}\n${effectiveCopilot.template || ''}`.trim().toLowerCase();
+    return artifact.content.trim().toLowerCase() !== mainBlob;
+  });
 
   return (
     <main className="max-w-full overflow-x-hidden">
@@ -1409,8 +1466,12 @@ Money: ${debrief.money_score}/100
               <div className="mb-3 flex flex-wrap gap-2">
                 <button className={`btn-secondary btn-sm ${copilotMode === 'action' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('action')}>Next action</button>
                 <button className={`btn-secondary btn-sm ${copilotMode === 'draft' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('draft')}>Draft it</button>
+                <button className={`btn-secondary btn-sm hidden sm:inline-flex ${copilotMode === 'brainstorm' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('brainstorm')}>Brainstorm</button>
                 <button className={`btn-secondary btn-sm ${copilotMode === 'blocked' ? 'border-amber-400 text-amber-200' : ''}`} onClick={() => refreshCopilot('blocked')}>Blocked</button>
               </div>
+              {process.env.NODE_ENV !== 'production' && (
+                <p className="mb-2 text-[11px] text-slate-500">Copilot source: {effectiveCopilot.source || 'current_mission'}</p>
+              )}
 
               <div className="space-y-2 rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-sm text-slate-200">
                 <p className="font-semibold text-white">{effectiveCopilot.title}</p>
@@ -1455,9 +1516,9 @@ Money: ${debrief.money_score}/100
                 </div>
               </div>
 
-              {!!effectiveCopilot.copyable_artifacts?.length && (
+              {!!artifactsToShow.length && (
                 <div className="mt-3 space-y-2">
-                  {effectiveCopilot.copyable_artifacts.map((artifact) => (
+                  {artifactsToShow.map((artifact) => (
                     <div key={artifact.label} className="rounded-lg border border-slate-700 bg-slate-950/50 p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{artifact.label}</p>
@@ -1475,6 +1536,7 @@ Money: ${debrief.money_score}/100
                   onClick={() =>
                     navigator.clipboard.writeText(
                       effectiveCopilot.copyable_artifacts?.[0]?.content ||
+                      artifactsToShow?.[0]?.content ||
                         `${effectiveCopilot.immediate_action}\n\n${effectiveCopilot.template || ''}`.trim()
                     )
                   }
