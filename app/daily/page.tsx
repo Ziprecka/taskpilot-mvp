@@ -248,6 +248,7 @@ export default function DailyPage() {
   function mapWorkTypeToDayType(work: string): DayType {
     switch (work) {
       case 'service_day':
+      case 'service_business_sales':
       case 'sales_day':
       case 'client_work_day':
         return 'money';
@@ -1267,8 +1268,8 @@ Money: ${debrief.money_score}/100
     if (/detail|car|route|customer|van/.test(title)) {
       return `ACTION\nConfirm today's route and customer order now.\n\nMAKE\nCustomer text:\n"You're confirmed for today. I'll send an ETA before arrival."\n\nRoute checklist:\n- List all addresses in final order\n- Confirm travel buffer between jobs\n- Confirm service duration by job\n\nProof checklist:\n- Photo of route sheet\n- Photo of loaded van\n- First before/after pair\n\nReview request:\n"Thanks again. If you loved it, could you leave a quick review?"\n\nMaintenance offer:\n"I can lock your next maintenance slot now."\n\nNEXT\nSend customer #1 ETA message.`;
     }
-    if (/sales|outreach|lead|prospect/.test(title)) {
-      return `ACTION\nBuild your first 10-prospect list now.\n\nMAKE\nName | Channel | Pain Signal | Message Variant | Status\n\nPROOF\nScreenshot the sheet with 10 rows.\n\nNEXT\nSend message variant A to first 3 prospects.`;
+    if (/sales|outreach|lead|prospect|detailing|customer/.test(title)) {
+      return `ACTION\nOpen Google Maps and search "luxury apartments near Seattle" (or your target area) to find prospects.\n\nMAKE\nTracker columns:\nName | Source | Contact | Fit Reason | Message Sent | Follow-up Date\n\nSample rows:\n- Harbor View Apartments | Google Maps | Leasing office number | 250+ tenant vehicles | No | Wed\n- Apex Auto Spa lot manager | Instagram | @apexautospa | Nearby partner lead | No | Thu\n- Northgate HOA manager | Yelp | Contact form | Resident vehicle volume | No | Fri\n- Riverview Condos | Facebook Groups | Group DM | Active local resident group | No | Fri\n- Uptown Realty fleet | Google Maps | Office email | Manages multiple cars | No | Mon\n\nMESSAGE\n"Hey — I run a mobile detailing service in the Seattle area. I'm looking for a few vehicles to feature this week and can come to you. Want a quick quote?"\n\nFOLLOW-UP\n"Quick follow-up in case this got buried. Want me to send pricing and available times?"\n\nPROOF\nScreenshot tracker with 10 prospects or sent DM screenshots.\n\nNEXT\nSend 5 messages.`;
     }
     if (/hardware|esp|arduino|atom|flash|firmware/.test(title)) {
       return `ACTION\nRun serial and wiring checks now.\n\nMAKE\nSerial/debug checklist:\n- Detect board port\n- Flash heartbeat sketch\n- Verify serial output every 5-10s\n\nWiring/setup proof:\n- Photo of wiring and board power\n- Serial monitor screenshot\n\nAPI test command:\ncurl -s "$BASE_URL/api/robot/state?robot_id=atom-s3r-001" -H "x-taskpilot-robot-key: YOUR_KEY"\n\nNEXT\nRun heartbeat POST and verify last_seen updates.`;
@@ -1276,7 +1277,7 @@ Money: ${debrief.money_score}/100
     if (/build|feature|deploy|component|bug/.test(title)) {
       return `ACTION\nImplement the smallest shippable change now.\n\nMAKE\nImplementation checklist:\n- Confirm target file and scope\n- Apply minimal diff\n- Verify behavior in UI/API\n\nTest commands:\n- npm run build\n- npm run dev\n\nDeployment proof checklist:\n- Build success output\n- Screenshot of changed behavior\n- API response sample if backend changed\n\nNEXT\nWrite a 3-line release note and ship.`;
     }
-    return `ACTION\n${outcome.first_action || 'Start the first concrete action.'}\n\nMAKE\nChecklist:\n- ${outcome.checklist?.[0] || 'Do step 1'}\n- ${outcome.checklist?.[1] || 'Do step 2'}\n- ${outcome.checklist?.[2] || 'Do step 3'}\n\nPROOF\n${outcome.proof_required || 'Log one proof item.'}\n\nNEXT\nMark complete or move to the next mission.`;
+    return `ACTION\n${outcome.first_action || 'Start the first concrete action.'}\n\nMAKE\nChecklist:\n- ${outcome.checklist?.[0] || 'Create first concrete artifact'}\n- ${outcome.checklist?.[1] || 'Execute one visible step'}\n- ${outcome.checklist?.[2] || 'Record status and follow-up'}\n\nPROOF\n${outcome.proof_required || 'Log one proof item.'}\n\nNEXT\nMark complete or move to the next mission.`;
   }
   const executionScore = Math.min(100, ((completedToday * 25) + Math.min(30, focusMinutesToday) + Math.min(20, (state.proof_count_today || 0) * 10)));
 
@@ -1317,10 +1318,8 @@ Money: ${debrief.money_score}/100
           }
           deskBotBadgeText={
             !deskBotConfigured
-              ? 'DeskBot · Link key in Settings'
-              : `DeskBot ${deskBotMeta?.online ? 'Online' : 'Offline'} · Last seen ${secondsAgoLabel(deskBotMeta?.last_heartbeat_at)}${
-                  deskBotState?.mission ? ` · ${deskBotState.mission.length > 36 ? `${deskBotState.mission.slice(0, 36)}…` : deskBotState.mission}` : ''
-                }`
+              ? 'DeskBot: setup needed'
+              : `DeskBot: ${deskBotMeta?.online ? 'Online' : 'Offline'} · ${deskBotState?.mission ? (deskBotState.mission.length > 24 ? `${deskBotState.mission.slice(0, 24)}…` : deskBotState.mission) : 'No mission'}`
           }
           deskBotUiTick={deskBotUiTick}
           onCloseDay={safeAction('Close day', () => setShowCloseDayModal(true))}
@@ -1328,7 +1327,7 @@ Money: ${debrief.money_score}/100
           onResetDay={() => setShowResetConfirm(true)}
         />
 
-        <div className="mb-4 max-w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-sm text-slate-300">
+        <div className="mb-4 hidden max-w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-950/50 p-3 text-sm text-slate-300 sm:block">
           {state.status === 'planning' && 'Plan today\'s outcomes.'}
           {state.status === 'focus' && 'You are in execution mode.'}
           {state.status === 'complete' && 'Day closed. Debrief saved.'}
