@@ -65,6 +65,23 @@ const GENERIC_BANNED = [
   'follow the checklist',
   'log proof'
 ];
+const VAGUE_MISSION_PHRASES = /(make progress|work on this|do better|fix it|start something|continue workflow|continue current step|get organized|work on app)/i;
+
+type InferredArtifactType =
+  | 'schedule'
+  | 'tracker'
+  | 'checklist'
+  | 'message'
+  | 'script'
+  | 'table'
+  | 'outline'
+  | 'parts_list'
+  | 'debug_path'
+  | 'acceptance_criteria'
+  | 'proof_checklist'
+  | 'workout_plan'
+  | 'decision_matrix'
+  | 'command_list';
 
 function isSamUser(email?: string): boolean {
   return String(email || '').toLowerCase() === 'sladoski64@gmail.com';
@@ -115,7 +132,7 @@ export function getCopilotMissionType(
   if (/\b(follow up|follow-up|booking path|quote handoff|reply template)\b/.test(text)) return 'customer_followup';
   if (/\b(outreach|dm|cold email|send 5|send messages?)\b/.test(text)) return 'outreach';
   if (/\b(lead|prospect|customers?|bookings?|yelp|instagram|facebook groups?)\b/.test(text)) return 'lead_generation';
-  if (/\b(detail|detailing|service day|before\/after|route|van)\b/.test(text)) return 'service_day';
+  if (/\b(car detail|auto detail|detail service|service day|service route|van)\b/.test(text)) return 'service_day';
   if (/\b(app|deploy|component|feature|bug|qa|commit|next\.?js|react)\b/.test(text)) return 'app_build';
   if (/\b(atom|arduino|esp32|firmware|serial|robot)\b/.test(text)) return 'hardware_debug';
   if (/\b(research|compare|sources)\b/.test(text)) return 'research';
@@ -182,14 +199,44 @@ function outreachArtifacts(ctx: ResolvedContext) {
   ];
 }
 
+export function inferNeededArtifact(args: {
+  mission: DailyOutcome | null;
+  dailyGoalContext?: string;
+}): InferredArtifactType[] {
+  const text = `${args.mission?.title || ''} ${args.mission?.objective || ''} ${args.mission?.first_action || ''} ${
+    args.mission?.proof_required || ''
+  } ${args.dailyGoalContext || ''}`.toLowerCase();
+  const out: InferredArtifactType[] = [];
+  if (/\b(5k|run|walk|workout|training|session|exercise|mobility|habit)\b/.test(text)) out.push('workout_plan', 'schedule', 'tracker', 'proof_checklist');
+  if (/\b(saas|app|feature|deploy|component|qa|test)\b/.test(text)) out.push('acceptance_criteria', 'checklist', 'command_list');
+  if (/\b(debug|atom|s3r|display|firmware|arduino|serial)\b/.test(text)) out.push('debug_path', 'command_list', 'checklist');
+  if (/\b(parts|sensor|wiring|board|shelf|hydroponic)\b/.test(text)) out.push('parts_list', 'table', 'checklist');
+  if (/\b(schedule|timeline|week|daily)\b/.test(text)) out.push('schedule');
+  if (/\b(track|tracker|prospect|list|table|rows|follow-up)\b/.test(text)) out.push('tracker', 'table');
+  if (/\b(outreach|message|dm|email|reply)\b/.test(text) && !/\b(debug|firmware|display|arduino|serial)\b/.test(text)) out.push('message', 'script');
+  if (/\b(compare|decision|tools|evaluate)\b/.test(text)) out.push('decision_matrix', 'table', 'outline');
+  out.push('proof_checklist');
+  return Array.from(new Set(out));
+}
+
 function buildByType(
   type: CopilotMissionType,
   mode: CopilotMode,
   mission: DailyOutcome | null,
   ctx: ResolvedContext
 ): CopilotExecutionOutput {
+  const inferredTypes = inferNeededArtifact({ mission });
+  const primaryArtifact = inferredTypes[0] || 'checklist';
   const missionDrivenArtifacts = (() => {
     const text = `${mission?.title || ''} ${mission?.objective || ''} ${mission?.first_action || ''}`.toLowerCase();
+    if (/\b(5k|run|walk|workout|training|session|exercise)\b/.test(text)) {
+      return [
+        { label: 'Beginner 4-week run/walk schedule', content: 'Week 1: 3 days - 1 min jog / 2 min walk x 7\nWeek 2: 3 days - 90 sec jog / 2 min walk x 7\nWeek 3: 3 days - 2 min jog / 90 sec walk x 8\nWeek 4: 3 days - 3 min jog / 90 sec walk x 8' },
+        { label: 'First 20-minute session', content: '5 min warm-up walk\n10 rounds: 30 sec jog + 60 sec walk\n5 min cooldown walk' },
+        { label: 'Run tracker', content: 'Date | Session | Completed | Time | Notes | Proof' },
+        { label: 'Proof checklist', content: '- Timer screenshot\n- Session completion note\n- Next session date scheduled' }
+      ];
+    }
     if (/\bparts|sensor|wiring|board|display|hydroponic|herb\b/.test(text)) {
       return [
         { label: 'Parts list table', content: 'Part | Qty | Est. cost | Source | Priority | Notes' },
@@ -211,7 +258,8 @@ function buildByType(
     if (/\bsaas|app|feature|deploy|test|commit\b/.test(text)) {
       return [
         { label: 'Cursor prompt', content: 'Implement [feature] with smallest safe diff. Return tests and edge cases.' },
-        { label: 'Acceptance criteria', content: '- change visible\n- tests pass\n- proof screenshot captured' }
+        { label: 'Acceptance criteria', content: '- change visible\n- tests pass\n- proof screenshot captured' },
+        { label: 'Commit message', content: 'feat: ship smallest scoped improvement with proof-backed QA' }
       ];
     }
     return [
@@ -224,9 +272,9 @@ function buildByType(
   if (mode === 'brainstorm') {
     return {
       mode,
-      title: "Let's turn this into a useful mission.",
+      title: "Let's clarify the mission first.",
       immediate_action: 'Choose one path below and start the first concrete action.',
-      where_to_go: ['Current mission card', 'Main execution tool for selected path'],
+      where_to_go: ['Goal input', 'Mission editor'],
       make_this:
         'Best interpretation: You need one practical path with clear proof.\nPaths: 1) Build list/scope 2) Execute outreach/work block 3) Follow up/close loop\nRecommended: Path 1 then Path 2.',
       checklist: [
@@ -416,7 +464,9 @@ function buildByType(
             ? copilotArtifactTemplates.unpaid_invoice || []
             : type === 'hardware_debug'
                 ? copilotArtifactTemplates.hardware_debug || []
-                : copilotArtifactTemplates.admin || [];
+                : type === 'admin'
+                  ? copilotArtifactTemplates.admin || []
+                  : [];
 
   const actionLine =
     mode === 'blocked'
@@ -425,15 +475,26 @@ function buildByType(
 
   return {
     mode,
-    title: mission?.title || 'Execution assistant',
+    title: mission?.title
+      ? primaryArtifact === 'workout_plan'
+        ? 'Use this run/walk schedule.'
+        : primaryArtifact === 'message'
+          ? 'Send these messages.'
+          : primaryArtifact === 'debug_path'
+            ? 'Follow this debug path.'
+            : `Use this to finish: ${mission.title}`
+      : 'Execution assistant',
     immediate_action: actionLine,
-    where_to_go: ['Current mission panel', 'Main execution tool'],
-    make_this: (baseArtifacts[0]?.content || missionDrivenArtifacts[0]?.content || 'Create one concrete artifact.'),
+    where_to_go: mission?.first_action ? ['Current mission', 'Tool needed for this mission'] : ['Mission card'],
+    make_this:
+      baseArtifacts[0]?.content ||
+      missionDrivenArtifacts[0]?.content ||
+      `Create a ${primaryArtifact.replace(/_/g, ' ')} for this mission.`,
     template: baseArtifacts[0]?.content || missionDrivenArtifacts[0]?.content,
     checklist: mission?.checklist?.slice(0, 4) || ['Run first action', 'Capture proof', 'Update status'],
     proof_required: proof,
     next_after_proof: 'Log proof and move to the next highest-leverage action.',
-    copyable_artifacts: baseArtifacts.length ? baseArtifacts : missionDrivenArtifacts,
+    copyable_artifacts: baseArtifacts.length ? [...baseArtifacts, ...missionDrivenArtifacts] : missionDrivenArtifacts,
     source: mode === 'blocked' ? 'blocked_helper' : 'current_mission'
   };
 }
@@ -467,13 +528,23 @@ export function dedupeCopilotSections(output: CopilotExecutionOutput): CopilotEx
   return cleaned;
 }
 
-function isVagueMission(mission: DailyOutcome | null, detectedWorkType?: string): boolean {
+function hasConcreteObject(text: string): boolean {
+  const tokens = text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+  return tokens.length >= 4;
+}
+
+function isVagueMission(mission: DailyOutcome | null, _detectedWorkType?: string): boolean {
   if (!mission) return true;
-  const text = `${mission.title} ${mission.first_action} ${mission.proof_required}`.toLowerCase();
-  const genericWords = /(make money|grow business|work on app|find leads|fix workflow|get organized|make progress)/i;
-  const genericFirstAction = /(start|do|work on|make progress|use template)/i.test(String(mission.first_action || ''));
-  const genericProof = /(log proof|proof item|visible progress)/i.test(String(mission.proof_required || ''));
-  return genericWords.test(text) || genericFirstAction || genericProof || detectedWorkType === 'custom';
+  const title = String(mission.title || '').trim();
+  const first = String(mission.first_action || '').trim();
+  const proof = String(mission.proof_required || '').trim();
+  if (!title || title.length < 6) return true;
+  if (!first || first.length < 8) return true;
+  if (!proof || proof.length < 8) return true;
+  const combined = `${title} ${first}`;
+  if (VAGUE_MISSION_PHRASES.test(combined)) return true;
+  if (!hasConcreteObject(combined)) return true;
+  return false;
 }
 
 function hasWrongArtifactForMission(missionType: CopilotMissionType, output: CopilotExecutionOutput): boolean {
@@ -523,7 +594,8 @@ export function buildCopilotExecutionOutput(args: {
 }): CopilotExecutionOutput {
   const missionType = getCopilotMissionType(args.mission, args.dailyGoalContext, args.detectedWorkType);
   const context = applyUserScopedDefaults(mergedUserContext(args.userContext), missionType, args.dailyGoalContext);
-  const effectiveMode = isVagueMission(args.mission, args.detectedWorkType) && args.mode === 'action' ? 'brainstorm' : args.mode;
+  const vague = isVagueMission(args.mission, args.detectedWorkType);
+  const effectiveMode = vague && args.mode === 'action' ? 'brainstorm' : args.mode;
   const first = dedupeCopilotSections(buildByType(missionType, effectiveMode, args.mission, context));
   const invalid =
     isGeneric(first) ||

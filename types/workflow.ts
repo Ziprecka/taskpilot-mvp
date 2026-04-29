@@ -225,6 +225,10 @@ export interface DailyReport {
   tomorrow_first_action: string;
   money_score: number;
   execution_score: number;
+  artifacts_created?: string[];
+  blockers?: string[];
+  next_recommended_action?: string;
+  completion_evidence_summary?: string;
   created_at: string;
   reflections?: {
     moved_forward: string;

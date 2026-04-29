@@ -523,7 +523,13 @@ export default function DailyPage() {
       return { ...prev, total_xp: total, level: nextLevel };
     });
     updateState((prev) => ({ ...prev, xp_today: (prev.xp_today || 0) + amount }));
-    pushToast(`+${amount} XP ${reason}`);
+    const rewardCopy =
+      /proof/i.test(reason) ? 'Proof locked.'
+      : /complete/i.test(reason) ? 'Mission cleared.'
+      : /level/i.test(reason) ? 'Level up.'
+      : /streak/i.test(reason) ? 'Execution streak continued.'
+      : `+${amount} XP ${reason}`;
+    pushToast(rewardCopy);
     if (rewardType === 'big') {
       setRewardData({ title: reason, xp: amount, copy: 'Progress locked in with proof-backed execution.', next: 'Take the next smallest action now.' });
       setShowReward(true);
@@ -617,6 +623,10 @@ export default function DailyPage() {
       active_focus_block: block,
       outcomes: prev.outcomes.map((o) => ({ ...o, status: o.id === outcome.id ? 'active' : o.status === 'active' ? 'selected' : o.status }))
     }));
+    if (outcome?.status === 'blocked') {
+      logEvent('blocker_resolved', `Blocker resolved for: ${outcome.title}`);
+      awardXP(8, 'Blocker resolved', 'small');
+    }
     logEvent('started_focus', `Focus started: ${outcome.title}`);
     addRecentActivity({ type: 'focus_started', title: `Focus started for ${outcome.title}`, route: '/daily' });
     void trackProductEvent('focus_started', '/daily', { outcome_id: outcome.id, title: outcome.title });
@@ -739,7 +749,9 @@ export default function DailyPage() {
     void trackEvent('proof_logged', { outcome_id: id });
     updateState((prev) => ({ ...prev, proof_count_today: (prev.proof_count_today || 0) + 1 }));
     setProgression((prev) => ({ ...prev, proof_logged_total: prev.proof_logged_total + 1 }));
+    const firstArtifact = (state.proof_items?.length || 0) === 0;
     awardXP(15, 'Evidence logged', 'big');
+    if (firstArtifact) awardXP(10, 'First artifact created', 'small');
     pushToast('Proof logged.');
   }
 
@@ -963,6 +975,8 @@ Money: ${debrief.money_score}/100
     const blocked = state.outcomes.filter((o) => o.status === 'blocked');
     const skipped = state.outcomes.filter((o) => o.status === 'skipped');
     const unfinished = state.outcomes.filter((o) => o.status !== 'done');
+    const artifactsCreated = (state.proof_items || []).map((item) => item.note || item.file_name || item.type).filter(Boolean);
+    const blockers = blocked.map((o) => o.blocker_note || o.title).filter(Boolean);
     const report: DailyReport = {
       id: debrief.id,
       date: state.date,
@@ -976,6 +990,10 @@ Money: ${debrief.money_score}/100
       tomorrow_first_action: debrief.tomorrow_first_move || (unfinished[0] ? `Start with: ${unfinished[0].title}` : 'Plan top 3 outcomes.'),
       money_score: Math.round(debrief.money_score / 10),
       execution_score: Math.round(debrief.execution_score / 10),
+      artifacts_created: artifactsCreated,
+      blockers,
+      next_recommended_action: debrief.tomorrow_first_move || (unfinished[0]?.first_action || unfinished[0]?.title || ''),
+      completion_evidence_summary: `${artifactsCreated.length} artifacts logged, ${completed.length} missions completed.`,
       created_at: debrief.created_at
     };
     updateState((prev) => ({ ...prev, status: 'complete', report, debrief }));
